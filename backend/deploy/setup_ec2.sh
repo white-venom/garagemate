@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # First time setup on a fresh Ubuntu 24.04 EC2 instance (t2.micro / t3.micro).
 #
-#   git clone <repo> /home/ubuntu/garagemate
+#   git clone https://github.com/white-venom/garagemate.git /home/ubuntu/garagemate
 #   cp /home/ubuntu/garagemate/backend/.env.example /home/ubuntu/garagemate/backend/.env   # and edit it
 #   sudo bash /home/ubuntu/garagemate/backend/deploy/setup_ec2.sh api.example.com you@example.com
 #

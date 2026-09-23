@@ -119,7 +119,7 @@ cd frontend && npm run lint && npm run build
 3. SSH in and run:
 
    ```bash
-   git clone https://github.com/YOUR-USER/YOUR-REPO.git /home/ubuntu/garagemate
+   git clone https://github.com/white-venom/garagemate.git /home/ubuntu/garagemate
    cd /home/ubuntu/garagemate/backend
    cp .env.example .env
    nano .env    # DJANGO_DEBUG=false, secret key, allowed hosts, CORS origin of the Vercel app, Gemini key,
