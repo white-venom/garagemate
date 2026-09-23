@@ -370,7 +370,7 @@ ISSUE_TYPES = [
                 "symptom",
                 "What's happening with the tyres?",
                 ("Vibration at speed", "A tyre keeps losing air", "Uneven or fast wear", "Car pulls to one side"),
-                skip_if=("vibrat*", "losing air", "puncture*", "uneven", "pull*"),
+                skip_if=("vibrat*", "losing air", "puncture*", "flat", "uneven", "pull*"),
             ),
             Question(
                 "speed",

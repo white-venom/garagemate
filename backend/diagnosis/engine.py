@@ -149,12 +149,12 @@ Rule engine ranking (keyword based, may be wrong):
 {ranking}
 
 Return JSON with:
-- title: the single most likely cause, max 8 words
+- title: the single most likely cause, max 8 words, without the car name
 - summary: 2-3 sentences to the customer explaining what is probably wrong and why you think so
-- probable_causes: up to 4 causes, most likely first, likelihood between 0 and 1. Prefer causes from the ranking, only add a new one if the evidence clearly points to it
+- probable_causes: up to 4 causes, most likely first. Likelihoods are between 0 and 1 and should add up to about 1. Prefer causes from the ranking, only add a new one if the evidence clearly points to it
 - severity: low, medium, high or critical
 - advice: 1-2 sentences on what to do until a mechanic inspects the car
-Only use facts from the evidence above."""
+Only use facts from the evidence above, don't assume symptoms the customer didn't mention."""
 
 
 def _ai_review(gemini, conversation, issue, ranked, evidence, rules_severity):
