@@ -6,13 +6,14 @@ import { useEffect, useState } from "react";
 
 import { ApiError, api, errorMessage, type FieldErrors } from "@/lib/api";
 import { formatDate, formatPriceRange, toDateInputValue } from "@/lib/format";
-import type { Booking, Conversation, Diagnosis, Service, ServiceMode, Slot } from "@/lib/types";
+import type { Booking, Conversation, Diagnosis, Profile, Service, ServiceMode, Slot } from "@/lib/types";
 
 interface BookingModalProps {
   open: boolean;
   onClose: () => void;
   conversation: Conversation | null;
   diagnosis: Diagnosis | null;
+  profile: Profile | null;
   onBooked: (booking: Booking) => void;
 }
 
@@ -30,6 +31,7 @@ interface FormState {
   scheduled_date: string;
   time_slot: string;
   notes: string;
+  save_details: boolean;
 }
 
 const SERVICE_MODES: { value: ServiceMode; label: string; hint: string; icon: typeof Home }[] = [
@@ -38,26 +40,7 @@ const SERVICE_MODES: { value: ServiceMode; label: string; hint: string; icon: ty
   { value: "pickup", label: "Pickup & drop", hint: "We collect the car", icon: Truck },
 ];
 
-// name / phone / address are remembered so repeat bookings are quicker
-const SAVED_CUSTOMER_KEY = "garagemate.customer";
 const MAX_DAYS_AHEAD = 30;
-
-function readSavedCustomer(): Partial<FormState> {
-  try {
-    return JSON.parse(localStorage.getItem(SAVED_CUSTOMER_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveCustomer(form: FormState) {
-  try {
-    const { customer_name, phone, email, address } = form;
-    localStorage.setItem(SAVED_CUSTOMER_KEY, JSON.stringify({ customer_name, phone, email, address }));
-  } catch {
-    // ignore
-  }
-}
 
 function isSunday(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -112,25 +95,30 @@ function Field({ label, error, children, optional }: { label: string; error?: st
 }
 
 const inputClass =
-  "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200";
+  "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition placeholder:text-stone-400 focus:border-brand-400 focus:ring-4 focus:ring-brand-100";
 
-function BookingForm({ onClose, conversation, diagnosis, onBooked }: Omit<BookingModalProps, "open">) {
+function BookingForm({ onClose, conversation, diagnosis, profile, onBooked }: Omit<BookingModalProps, "open">) {
   const [form, setForm] = useState<FormState>(() => {
-    const saved = readSavedCustomer();
+    // prefill from the profile: the car picked in the chat, or the primary car if the chat didn't mention one
+    const cars = profile?.cars ?? [];
+    const chatHasCar = Boolean(conversation?.vehicle.make || conversation?.vehicle.model);
+    const car = cars.find((item) => item.id === conversation?.car_id) ?? (chatHasCar ? undefined : cars.find((item) => item.is_primary));
+    const year = conversation?.vehicle.year ?? car?.year;
     return {
       service: diagnosis?.recommended_service?.code ?? "general-inspection",
-      customer_name: saved.customer_name ?? "",
-      phone: saved.phone ?? "",
-      email: saved.email ?? "",
-      vehicle_make: conversation?.vehicle.make ?? "",
-      vehicle_model: conversation?.vehicle.model ?? "",
-      vehicle_year: conversation?.vehicle.year ? String(conversation.vehicle.year) : "",
-      registration_number: "",
+      customer_name: profile?.name ?? "",
+      phone: profile?.phone ?? "",
+      email: profile?.email ?? "",
+      vehicle_make: conversation?.vehicle.make || car?.make || "",
+      vehicle_model: conversation?.vehicle.model || car?.model || "",
+      vehicle_year: year ? String(year) : "",
+      registration_number: car?.registration_number ?? "",
       service_mode: "garage",
-      address: saved.address ?? "",
+      address: "",
       scheduled_date: defaultDate(),
       time_slot: "",
       notes: "",
+      save_details: true,
     };
   });
   const [services, setServices] = useState<Service[]>([]);
@@ -203,7 +191,6 @@ function BookingForm({ onClose, conversation, diagnosis, onBooked }: Omit<Bookin
         conversation_id: conversation?.id ?? null,
         diagnosis_id: diagnosis?.id ?? null,
       });
-      saveCustomer(form);
       setBooking(created);
       onBooked(created);
     } catch (error) {
@@ -277,16 +264,15 @@ function BookingForm({ onClose, conversation, diagnosis, onBooked }: Omit<Bookin
 
   return (
     <form onSubmit={submit} noValidate className="flex max-h-full flex-col">
-      <div className="flex items-start justify-between border-b border-stone-200 px-5 py-4">
+      <div className="flex items-start justify-between bg-ink-900 px-5 py-5 text-white">
         <div>
-          <h2 id="booking-title" className="text-lg font-semibold text-stone-900">
-            Book a mechanic
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-400">Book a mechanic</p>
+          <h2 id="booking-title" className="mt-1.5 font-display text-xl font-semibold tracking-tight">
+            {diagnosis ? diagnosis.title : "Pick a service and a time"}
           </h2>
-          <p className="text-sm text-stone-500">
-            {diagnosis ? `For: ${diagnosis.title}` : "Pick a service, date and time that suits you."}
-          </p>
+          <p className="mt-1 text-xs text-stone-400">A free mechanic is assigned automatically, no double bookings.</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Close">
+        <button type="button" onClick={onClose} className="rounded-md p-1 text-stone-400 hover:bg-white/10 hover:text-white" aria-label="Close">
           <X className="size-5" />
         </button>
       </div>
@@ -354,7 +340,7 @@ function BookingForm({ onClose, conversation, diagnosis, onBooked }: Omit<Bookin
               <label
                 key={value}
                 className={`flex cursor-pointer items-start gap-2 rounded-xl border p-3 text-sm transition ${
-                  form.service_mode === value ? "border-amber-400 bg-amber-50 ring-1 ring-amber-300" : "border-stone-200 hover:bg-stone-50"
+                  form.service_mode === value ? "border-brand-400 bg-brand-50 ring-1 ring-brand-300" : "border-stone-200 hover:bg-stone-50"
                 }`}
               >
                 <input type="radio" name="service_mode" value={value} checked={form.service_mode === value} onChange={() => setField("service_mode", value)} className="sr-only" />
@@ -408,7 +394,7 @@ function BookingForm({ onClose, conversation, diagnosis, onBooked }: Omit<Bookin
                   disabled={!slot.available}
                   onClick={() => setField("time_slot", slot.value)}
                   className={`rounded-lg border px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                    form.time_slot === slot.value ? "border-amber-400 bg-amber-50 ring-1 ring-amber-300" : "border-stone-200 hover:bg-stone-50"
+                    form.time_slot === slot.value ? "border-brand-400 bg-brand-50 ring-1 ring-brand-300" : "border-stone-200 hover:bg-stone-50"
                   }`}
                 >
                   <span className="block font-medium text-stone-900">{slot.label}</span>
@@ -427,12 +413,21 @@ function BookingForm({ onClose, conversation, diagnosis, onBooked }: Omit<Bookin
         </Field>
       </div>
 
-      <div className="border-t border-stone-200 px-5 py-4">
+      <div className="border-t border-stone-200 bg-stone-50/70 px-5 py-4">
+        <label className="mb-3 flex items-center gap-2 text-sm text-stone-600">
+          <input
+            type="checkbox"
+            checked={form.save_details}
+            onChange={(event) => setField("save_details", event.target.checked)}
+            className="size-4 rounded accent-brand-500"
+          />
+          Save my details and car for next time
+        </label>
         {formError && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</p>}
         <button
           type="submit"
           disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-stone-900 transition hover:bg-amber-400 disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-ink-950 shadow-[0_8px_20px_-10px] shadow-brand-600 transition hover:bg-brand-400 disabled:opacity-60"
         >
           {submitting ? <Loader2 className="size-4 animate-spin" /> : <CalendarCheck className="size-4" />}
           {submitting ? "Booking..." : "Confirm booking"}
@@ -468,7 +463,7 @@ export default function BookingModal({ open, ...props }: BookingModalProps) {
         aria-modal="true"
         aria-labelledby="booking-title"
         onClick={(event) => event.stopPropagation()}
-        className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:max-w-xl sm:rounded-2xl"
+        className="flex max-h-[92dvh] w-full animate-rise flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-w-xl sm:rounded-2xl"
       >
         {/* remounted every time it opens so the form starts fresh from the latest diagnosis */}
         <BookingForm {...props} />

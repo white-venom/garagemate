@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api, errorMessage } from "@/lib/api";
-import type { Attachment, Booking, Conversation, Diagnosis, Message } from "@/lib/types";
+import type { Attachment, Booking, Conversation, Diagnosis, Message, Profile } from "@/lib/types";
 
+import ApiLogsPanel from "./ApiLogsPanel";
 import BookingModal from "./BookingModal";
 import ChatHeader from "./ChatHeader";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
+import ProfileModal from "./ProfileModal";
 import Sidebar from "./Sidebar";
 import Toast from "./Toast";
 
@@ -37,9 +39,12 @@ export default function ChatApp() {
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [sending, setSending] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingDiagnosis, setBookingDiagnosis] = useState<Diagnosis | null>(null);
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const localCounter = useRef(0);
 
@@ -49,6 +54,9 @@ export default function ChatApp() {
     }
     return null;
   }, [messages]);
+
+  // shows a warning dot on the API logs button
+  const aiTrouble = messages.some((item) => item.ai_error);
 
   const upsertConversation = (updated: Conversation) => {
     setConversations((previous) => [updated, ...previous.filter((item) => item.id !== updated.id)]);
@@ -62,6 +70,14 @@ export default function ChatApp() {
       setToast(errorMessage(error));
     } finally {
       setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadProfile = useCallback(async () => {
+    try {
+      setProfile(await api.getProfile());
+    } catch {
+      // the chat works without a profile, no need to shout about it
     }
   }, []);
 
@@ -84,7 +100,7 @@ export default function ChatApp() {
     }
   }, []);
 
-  // first load: history for the sidebar + reopen whatever chat was open last time
+  // first load: history, profile, and reopen whatever chat was open last time
   useEffect(() => {
     let lastId: string | null = null;
     try {
@@ -92,10 +108,10 @@ export default function ChatApp() {
     } catch {
       lastId = null;
     }
-    const tasks: Promise<void>[] = [loadHistory()];
+    const tasks: Promise<void>[] = [loadHistory(), loadProfile()];
     if (lastId) tasks.push(loadConversation(lastId));
     void Promise.all(tasks);
-  }, [loadHistory, loadConversation]);
+  }, [loadHistory, loadProfile, loadConversation]);
 
   const openConversation = (id: string) => {
     setSidebarOpen(false);
@@ -113,11 +129,18 @@ export default function ChatApp() {
   };
 
   const closeBooking = useCallback(() => setBookingOpen(false), []);
+  const closeLogs = useCallback(() => setLogsOpen(false), []);
+  const closeProfile = useCallback(() => setProfileOpen(false), []);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const openBooking = (diagnosis: Diagnosis | null) => {
     setBookingDiagnosis(diagnosis);
     setBookingOpen(true);
+  };
+
+  const openProfile = () => {
+    setSidebarOpen(false);
+    setProfileOpen(true);
   };
 
   const send = async (text: string, attachments: Attachment[] = [], retryLocalId?: string) => {
@@ -135,6 +158,7 @@ export default function ChatApp() {
       diagnosis: null,
       booking: null,
       used_ai: false,
+      ai_error: "",
       created_at: new Date().toISOString(),
       status: "sending",
     };
@@ -212,28 +236,34 @@ export default function ChatApp() {
       void loadConversation(booking.conversation_id);
     }
     void loadHistory();
+    void loadProfile();
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-stone-100">
+    <div className="flex h-dvh overflow-hidden bg-paper">
       <Sidebar
         conversations={conversations}
         loading={historyLoading}
         activeId={conversation?.id ?? null}
         open={sidebarOpen}
+        profile={profile}
         onClose={() => setSidebarOpen(false)}
         onSelect={openConversation}
         onNewChat={startNewChat}
         onDelete={deleteConversation}
+        onOpenProfile={openProfile}
+        onOpenLogs={() => setLogsOpen(true)}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="workshop-grid flex min-w-0 flex-1 flex-col">
         <ChatHeader
           conversation={conversation}
           busy={sending}
+          aiTrouble={aiTrouble}
           onOpenMenu={() => setSidebarOpen(true)}
           onDiagnose={diagnoseNow}
           onBook={() => openBooking(latestDiagnosis)}
+          onOpenLogs={() => setLogsOpen(true)}
         />
 
         <MessageList
@@ -241,9 +271,12 @@ export default function ChatApp() {
           loading={loadingConversation}
           typing={sending}
           stage={conversation?.stage ?? "new"}
+          profile={profile}
           onQuickReply={(text) => void send(text)}
           onRetry={retry}
           onBook={openBooking}
+          onOpenLogs={() => setLogsOpen(true)}
+          onOpenProfile={openProfile}
         />
 
         <Composer conversationId={conversation?.id ?? null} disabled={sending || loadingConversation} onSend={send} onError={setToast} />
@@ -254,8 +287,13 @@ export default function ChatApp() {
         onClose={closeBooking}
         conversation={conversation}
         diagnosis={bookingDiagnosis ?? latestDiagnosis}
+        profile={profile}
         onBooked={handleBooked}
       />
+
+      <ProfileModal open={profileOpen} onClose={closeProfile} profile={profile} onChange={setProfile} />
+
+      <ApiLogsPanel open={logsOpen} onClose={closeLogs} />
 
       <Toast message={toast} onDismiss={dismissToast} />
     </div>

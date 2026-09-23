@@ -52,6 +52,22 @@ export const severityStyles: Record<Severity, { label: string; badge: string; ba
   critical: { label: "Critical", badge: "bg-red-50 text-red-700 ring-red-200", bar: "bg-red-600", dot: "bg-red-600" },
 };
 
+export const aiFailureLabels: Record<string, string> = {
+  quota: "the free tier quota is used up",
+  overloaded: "Gemini is overloaded right now",
+  timeout: "Gemini took too long to answer",
+  invalid_key: "the API key was rejected",
+  model_not_found: "the model isn't available",
+  not_configured: "no API key is set on the server",
+  empty: "Gemini returned an empty answer",
+  bad_response: "Gemini's answer couldn't be read",
+  error: "the request failed",
+};
+
+export function aiFailureLabel(reason: string) {
+  return aiFailureLabels[reason] ?? aiFailureLabels.error;
+}
+
 export const stageLabels: Record<Stage, string> = {
   new: "New",
   gathering: "Collecting details",

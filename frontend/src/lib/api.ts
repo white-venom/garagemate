@@ -1,12 +1,18 @@
 import { getClientId } from "./clientId";
+import { getCustomGeminiKey } from "./geminiKey";
 import type {
+  AiCheckResponse,
   Attachment,
   Booking,
   BookingRequest,
+  Car,
+  CarInput,
   ChatResponse,
   Conversation,
   ConversationDetail,
   DiagnosisResponse,
+  LogsResponse,
+  Profile,
   Service,
   Slot,
 } from "./types";
@@ -50,6 +56,9 @@ async function request<T>(path: string, options: RequestInit & { json?: unknown 
   const headers = new Headers(init.headers);
   headers.set("X-Client-Id", getClientId());
   headers.set("Accept", "application/json");
+  // only set when our Gemini key is failing and the visitor added their own
+  const geminiKey = getCustomGeminiKey();
+  if (geminiKey) headers.set("X-Gemini-Key", geminiKey);
   if (json !== undefined) {
     headers.set("Content-Type", "application/json");
     init.body = JSON.stringify(json);
@@ -125,6 +134,20 @@ export const api = {
   getBooking: (id: string) => request<Booking>(`/api/booking/${id}/`),
 
   cancelBooking: (id: string) => request<Booking>(`/api/booking/${id}/cancel/`, { method: "POST" }),
+
+  getProfile: () => request<Profile>("/api/profile/"),
+
+  updateProfile: (body: Partial<Omit<Profile, "cars">>) => request<Profile>("/api/profile/", { method: "PUT", json: body }),
+
+  addCar: (body: Partial<CarInput>) => request<Car>("/api/profile/cars/", { method: "POST", json: body }),
+
+  updateCar: (id: number, body: Partial<CarInput>) => request<Car>(`/api/profile/cars/${id}/`, { method: "PATCH", json: body }),
+
+  deleteCar: (id: number) => request<void>(`/api/profile/cars/${id}/`, { method: "DELETE" }),
+
+  getLogs: () => request<LogsResponse>("/api/logs/"),
+
+  checkGemini: () => request<AiCheckResponse>("/api/ai/check/", { method: "POST" }),
 };
 
 export function errorMessage(error: unknown) {

@@ -3,6 +3,43 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-bricolage);
+}
+
+/* workshop palette: graphite + safety orange */
+@theme {
+  --color-brand-50: #fff5ed;
+  --color-brand-100: #ffe7d4;
+  --color-brand-200: #ffcaa8;
+  --color-brand-300: #ffa570;
+  --color-brand-400: #ff7a35;
+  --color-brand-500: #f65a0b;
+  --color-brand-600: #d94604;
+  --color-brand-700: #b43707;
+  --color-brand-800: #8f2e0d;
+  --color-brand-900: #74280e;
+
+  --color-ink-950: #0b0c0f;
+  --color-ink-900: #121418;
+  --color-ink-800: #1b1e24;
+  --color-ink-700: #272b33;
+  --color-ink-600: #3a3f49;
+  --color-ink-500: #5b616d;
+
+  --color-paper: #f4f2ed;
+
+  --animate-rise: rise 0.3s ease-out both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 :root {
@@ -10,8 +47,15 @@
 }
 
 body {
-  background: #f5f5f4;
-  color: #1c1917;
+  background: var(--color-paper);
+  color: var(--color-ink-900);
+}
+
+/* faint dot grid behind the chat, like a workshop floor plan */
+.workshop-grid {
+  background-color: var(--color-paper);
+  background-image: radial-gradient(rgb(18 20 24 / 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 /* markdown inside chat bubbles */
@@ -59,4 +103,10 @@ body {
     opacity: 1;
     transform: translateY(-3px);
   }
+}
+
+/* thin scrollbars in the dark panels */
+.dark-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.15) transparent;
 }

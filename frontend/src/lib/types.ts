@@ -76,6 +76,7 @@ export interface Message {
   diagnosis: Diagnosis | null;
   booking: BookingSummary | null;
   used_ai: boolean;
+  ai_error: string;
   created_at: string;
 }
 
@@ -93,6 +94,7 @@ export interface Conversation {
   stage: Stage;
   issue_category: string;
   vehicle: Vehicle;
+  car_id: number | null;
   latest_diagnosis: { id: number; title: string; severity: Severity } | null;
   last_message: string;
   created_at: string;
@@ -158,6 +160,76 @@ export interface Booking {
   created_at: string;
 }
 
+export interface Car {
+  id: number;
+  make: string;
+  model: string;
+  year: number | null;
+  fuel_type: string;
+  odometer_km: number | null;
+  registration_number: string;
+  is_primary: boolean;
+  label: string;
+  created_at: string;
+}
+
+export type CarInput = Omit<Car, "id" | "label" | "created_at">;
+
+export interface Profile {
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+  cars: Car[];
+}
+
+export interface AiCall {
+  purpose: string;
+  model: string;
+  ok: boolean;
+  reason: string;
+  message: string;
+  duration_ms: number;
+  custom_key: boolean;
+}
+
+export interface RequestLog {
+  id: number;
+  method: string;
+  path: string;
+  status_code: number;
+  duration_ms: number;
+  error: string;
+  ai_calls: AiCall[];
+  created_at: string;
+}
+
+export interface LogsResponse {
+  gemini: {
+    status: "ok" | "failing" | "unknown" | "not_configured";
+    reason: string;
+    last_call_at: string | null;
+    model: string;
+    fallback_model: string;
+    using_custom_key: boolean;
+  };
+  stats: {
+    requests: number;
+    bot_replies: number;
+    handled_by_rules: number;
+    ai_calls: number;
+    ai_failures: number;
+  };
+  results: RequestLog[];
+}
+
+export interface AiCheckResponse {
+  ok: boolean;
+  reason: string;
+  using_custom_key: boolean;
+  duration_ms: number;
+}
+
 export interface BookingRequest {
   service: string;
   conversation_id?: string | null;
@@ -174,4 +246,5 @@ export interface BookingRequest {
   scheduled_date: string;
   time_slot: string;
   notes?: string;
+  save_details?: boolean;
 }

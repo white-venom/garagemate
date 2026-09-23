@@ -138,7 +138,7 @@ export default function Composer({ conversationId, disabled, onSend, onError }: 
   const recording = recorder.state === "recording";
 
   return (
-    <div className="border-t border-stone-200 bg-white px-3 pb-3 pt-2 sm:px-6">
+    <div className="px-3 pb-3 pt-1 sm:px-6 sm:pb-4">
       <div className="mx-auto max-w-3xl">
         {uploads.length > 0 && (
           <ul className="mb-2 flex flex-wrap gap-2">
@@ -146,7 +146,7 @@ export default function Composer({ conversationId, disabled, onSend, onError }: 
               <li
                 key={item.key}
                 className={`relative flex w-52 items-center gap-2 overflow-hidden rounded-xl border p-2 text-xs ${
-                  item.status === "error" ? "border-red-200 bg-red-50" : "border-stone-200 bg-stone-50"
+                  item.status === "error" ? "border-red-200 bg-red-50" : "border-stone-200 bg-white shadow-sm"
                 }`}
               >
                 {item.previewUrl ? (
@@ -176,7 +176,7 @@ export default function Composer({ conversationId, disabled, onSend, onError }: 
                   <X className="size-4" />
                 </button>
                 {item.status === "uploading" && (
-                  <span className="absolute inset-x-0 bottom-0 h-0.5 bg-amber-500 transition-all" style={{ width: `${item.progress}%` }} />
+                  <span className="absolute inset-x-0 bottom-0 h-0.5 bg-brand-500 transition-all" style={{ width: `${item.progress}%` }} />
                 )}
               </li>
             ))}
@@ -193,7 +193,7 @@ export default function Composer({ conversationId, disabled, onSend, onError }: 
           </p>
         )}
 
-        <div className="flex items-end gap-1.5 rounded-2xl border border-stone-300 bg-stone-50 p-1.5 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-200">
+        <div className="flex items-end gap-1 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.22)] transition focus-within:border-brand-300 focus-within:ring-4 focus-within:ring-brand-100">
           <input
             ref={fileInputRef}
             type="file"
@@ -272,7 +272,7 @@ export default function Composer({ conversationId, disabled, onSend, onError }: 
             type="button"
             onClick={submit}
             disabled={!canSend}
-            className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-500 text-stone-900 transition hover:bg-amber-400 disabled:bg-stone-200 disabled:text-stone-400"
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-ink-900 text-white transition hover:bg-brand-500 hover:text-ink-950 disabled:bg-stone-100 disabled:text-stone-300"
             aria-label="Send message"
           >
             {disabled ? <Loader2 className="size-5 animate-spin" /> : <SendHorizontal className="size-5" />}

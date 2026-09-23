@@ -55,7 +55,7 @@ export default function BookingDetails({ id }: { id: string }) {
   };
 
   return (
-    <div className="min-h-full bg-stone-100 px-4 py-8 sm:py-12">
+    <div className="workshop-grid min-h-full px-4 py-8 sm:py-12">
       <div className="mx-auto max-w-lg">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-stone-600 hover:text-stone-900">
           <ArrowLeft className="size-4" /> Back to chat
@@ -76,8 +76,8 @@ export default function BookingDetails({ id }: { id: string }) {
 
         {booking && (
           <article className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone-200">
-            <header className="bg-stone-900 px-5 py-5 text-white">
-              <p className="text-xs uppercase tracking-wide text-stone-400">Booking reference</p>
+            <header className="bg-ink-900 px-5 py-5 text-white">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-400">Booking reference</p>
               <div className="mt-1 flex items-center justify-between gap-3">
                 <h1 className="font-mono text-2xl font-semibold">{booking.reference}</h1>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${statusStyles[booking.status]}`}>
