@@ -1,0 +1,468 @@
+"""
+The conversation flow. Basically a small state machine:
+
+    new -> gathering (follow-up questions) -> diagnosed -> booked
+
+Rules decide what to say next. Gemini only gets called for:
+  - looking at photos / audio / video (media.py)
+  - open ended car questions the knowledge base can't answer
+  - a second opinion on the diagnosis when the rules aren't sure (diagnosis/engine.py)
+"""
+
+import hashlib
+import logging
+from dataclasses import dataclass, field
+
+from django.core.cache import cache
+
+from bookings.models import Service
+from core.gemini import GeminiClient, GeminiError
+from core.prompts import MECHANIC_PERSONA
+from core.text import mentions_any, normalize, word_count
+from diagnosis.engine import build_diagnosis, detect_issue, diagnosis_message, format_rupees
+from diagnosis.knowledge_base import (
+    ISSUE_TYPES_BY_KEY,
+    SAFETY_ALERTS,
+    TRIAGE_QUESTIONS,
+    VEHICLE_QUESTION,
+)
+from diagnosis.models import Diagnosis
+
+from ..models import Conversation, Message
+from . import intents, replies
+from .media import analyse_attachment
+from .vehicle import extract_vehicle_details
+
+logger = logging.getLogger(__name__)
+
+AI_HISTORY_MESSAGES = 8
+AI_ANSWER_CACHE_SECONDS = 60 * 60 * 24
+MAX_MEDIA_NOTES = 5
+
+Stage = Conversation.Stage
+Kind = Message.Kind
+
+
+@dataclass
+class BotReply:
+    content: str
+    kind: str = Kind.TEXT
+    quick_replies: list = field(default_factory=list)
+    action: str = ""
+    diagnosis: Diagnosis = None
+    used_ai: bool = False
+
+
+class MechanicBot:
+    def __init__(self, conversation, gemini=None):
+        self.conversation = conversation
+        self.gemini = gemini or GeminiClient()
+        self.state = dict(conversation.state or {})
+        self.used_ai = False
+
+    @property
+    def issue(self):
+        return ISSUE_TYPES_BY_KEY.get(self.conversation.issue_category)
+
+    def reply(self, text, attachments=()):
+        raw = (text or "").strip()
+        normalized = normalize(raw)
+        preface = []
+
+        self._remember_vehicle(raw)
+
+        alert = self._safety_alert(normalized)
+        if alert:
+            preface.append(alert)
+
+        media_notes = self._look_at_media(attachments, raw, preface)
+        reply = self._route(raw, normalized, media_notes)
+
+        if preface:
+            reply.content = "\n\n".join([*preface, reply.content])
+        reply.used_ai = reply.used_ai or self.used_ai
+        self._save()
+        return reply
+
+    def diagnose_now(self):
+        """Skip whatever follow-up questions are left and diagnose (POST /api/diagnosis/)."""
+        reply = self._diagnose()
+        self._save()
+        return reply
+
+    # ---- routing -------------------------------------------------------
+
+    def _route(self, raw, normalized, media_notes):
+        pending = self.state.get("pending")
+        media_text = " ".join(note["observations"] for note in media_notes)
+
+        if not normalized:
+            return self._handle_media_only(pending, media_notes, media_text)
+
+        if pending:
+            return self._handle_answer(pending, raw, normalized)
+
+        if self.conversation.stage in (Stage.DIAGNOSED, Stage.BOOKED):
+            reply = self._handle_after_diagnosis(raw, normalized)
+            if reply:
+                return reply
+
+        issue = detect_issue(f"{raw} {media_text}")
+        if issue and intents.asks_about_cost(normalized) and intents.is_question(normalized, raw):
+            return self._price_answer(issue)
+        if issue:
+            return self._start_issue(issue, f"{raw} {media_text}".strip())
+
+        if intents.wants_booking(normalized):
+            return self._offer_booking()
+        if intents.is_greeting(normalized):
+            return BotReply(replies.GREETING, quick_replies=replies.STARTER_PROMPTS)
+        if intents.is_thanks(normalized):
+            return BotReply(replies.THANKS)
+        if intents.is_off_topic(normalized):
+            return self._reject()
+
+        topic = intents.triage_topic(normalized)
+        if topic:
+            return self._ask_triage(topic, raw)
+
+        if intents.is_car_related(normalized) or media_text:
+            if intents.is_question(normalized, raw):
+                return self._answer_general_question(raw)
+            return BotReply(replies.NEED_MORE_DETAIL, quick_replies=replies.STARTER_PROMPTS)
+
+        if word_count(normalized) <= 3:
+            return BotReply(replies.NUDGE, quick_replies=replies.STARTER_PROMPTS)
+        return self._reject()
+
+    def _handle_media_only(self, pending, media_notes, media_text):
+        if pending:
+            return self._ask_again(pending)
+        hinted = next((note["system"] for note in media_notes if note["system"] in ISSUE_TYPES_BY_KEY), None)
+        issue = ISSUE_TYPES_BY_KEY.get(hinted) or detect_issue(media_text)
+        if issue:
+            return self._start_issue(issue, media_text)
+        return BotReply(replies.ASK_WHAT_PROBLEM, quick_replies=replies.STARTER_PROMPTS)
+
+    def _handle_answer(self, pending, raw, normalized):
+        if intents.is_off_topic(normalized):
+            return self._reject(reprompt=pending)
+
+        if pending.startswith("triage:"):
+            return self._handle_triage_answer(pending.split(":", 1)[1], raw)
+
+        if intents.wants_booking(normalized) and not detect_issue(raw):
+            return self._offer_booking()
+
+        if intents.wants_to_skip(normalized):
+            self.state["pending"] = None
+            return self._diagnose()
+
+        if pending == VEHICLE_QUESTION.key and not extract_vehicle_details(raw):
+            # they skipped the car question and told us more about the problem instead,
+            # keep it with the description so we don't ask about it again
+            self.state["description"] = f"{self.state.get('description', '')}. {raw}".strip(". ")
+
+        self.state.setdefault("answers", {})[pending] = raw
+        return self._next_step()
+
+    def _handle_after_diagnosis(self, raw, normalized):
+        diagnosis = self._latest_diagnosis()
+        if intents.wants_booking(normalized) or intents.is_yes(normalized):
+            return self._offer_booking(diagnosis)
+        if intents.is_no(normalized):
+            return BotReply(replies.BOOKING_DECLINED)
+        if intents.is_thanks(normalized):
+            return BotReply(replies.THANKS)
+        if diagnosis and intents.asks_about_cost(normalized) and not detect_issue(raw):
+            return self._cost_answer(diagnosis)
+        if diagnosis and intents.asks_about_safety(normalized):
+            return self._safety_answer(diagnosis)
+        return None
+
+    # ---- follow-up questions ---------------------------------------------
+
+    def _start_issue(self, issue, description):
+        conversation = self.conversation
+        first_issue = not conversation.issue_category
+        conversation.issue_category = issue.key
+        conversation.stage = Stage.GATHERING
+        self.state = {
+            "description": description,
+            "answers": {},
+            "pending": None,
+            "media_notes": self.state.get("media_notes", []),
+            "vehicle_asked": self.state.get("vehicle_asked", False),
+        }
+        if first_issue or not conversation.title:
+            conversation.title = self._make_title(issue)
+        return self._next_step(intro=issue.intro)
+
+    def _next_step(self, intro=""):
+        question = self._next_question()
+        if question is None:
+            self.state["pending"] = None
+            reply = self._diagnose()
+            if intro:
+                reply.content = f"{intro}\n\n{reply.content}"
+            return reply
+
+        self.state["pending"] = question.key
+        if question.key == VEHICLE_QUESTION.key:
+            self.state["vehicle_asked"] = True
+        content = f"{intro}\n\n{question.text}" if intro else question.text
+        return BotReply(content, kind=Kind.QUESTION, quick_replies=list(question.options))
+
+    def _next_question(self):
+        issue = self.issue
+        if issue is None:
+            return None
+        answers = self.state.get("answers", {})
+        described = normalize(self.state.get("description", ""))
+
+        questions = list(issue.questions)
+        vehicle_known = self.conversation.vehicle_make or self.conversation.vehicle_model
+        if not vehicle_known and not self.state.get("vehicle_asked"):
+            # ask about the car after the first symptom question, feels less like a form that way
+            questions.insert(1, VEHICLE_QUESTION)
+
+        for question in questions:
+            if question.key in answers:
+                continue
+            if question.skip_if and mentions_any(described, question.skip_if):
+                continue
+            return question
+        return None
+
+    def _question_by_key(self, key):
+        if key == VEHICLE_QUESTION.key:
+            return VEHICLE_QUESTION
+        issue = self.issue
+        if issue:
+            for question in issue.questions:
+                if question.key == key:
+                    return question
+        return None
+
+    def _ask_again(self, pending):
+        if pending.startswith("triage:"):
+            triage = TRIAGE_QUESTIONS[pending.split(":", 1)[1]]
+            return BotReply(triage.text, kind=Kind.QUESTION, quick_replies=[label for label, _ in triage.options])
+        question = self._question_by_key(pending)
+        if question is None:
+            self.state["pending"] = None
+            return BotReply(replies.NEED_MORE_DETAIL)
+        return BotReply(f"Thanks. {question.text}", kind=Kind.QUESTION, quick_replies=list(question.options))
+
+    def _ask_triage(self, topic, raw):
+        triage = TRIAGE_QUESTIONS[topic]
+        self.conversation.stage = Stage.GATHERING
+        self.state.update({"description": raw, "answers": {}, "pending": f"triage:{topic}"})
+        return BotReply(
+            f"{replies.TRIAGE_INTRO} {triage.text}",
+            kind=Kind.QUESTION,
+            quick_replies=[label for label, _ in triage.options],
+        )
+
+    def _handle_triage_answer(self, topic, raw):
+        self.state["pending"] = None
+        description = f"{self.state.get('description', '')}. {raw}".strip(". ")
+
+        triage = TRIAGE_QUESTIONS.get(topic)
+        picked = normalize(raw)
+        issue = None
+        if triage:
+            issue_key = next((key for label, key in triage.options if normalize(label) == picked), None)
+            issue = ISSUE_TYPES_BY_KEY.get(issue_key)
+        issue = issue or detect_issue(raw) or detect_issue(description)
+
+        if issue:
+            return self._start_issue(issue, description)
+        self.conversation.stage = Stage.NEW
+        return BotReply(replies.NEED_MORE_DETAIL, quick_replies=replies.STARTER_PROMPTS)
+
+    # ---- diagnosis & booking ---------------------------------------------
+
+    def _diagnose(self):
+        diagnosis = build_diagnosis(self.conversation, gemini=self.gemini)
+        self.conversation.stage = Stage.DIAGNOSED
+        self.state["pending"] = None
+        return BotReply(
+            diagnosis_message(diagnosis),
+            kind=Kind.DIAGNOSIS,
+            diagnosis=diagnosis,
+            quick_replies=["Yes, book a mechanic", "Not right now"],
+            used_ai=diagnosis.source == Diagnosis.Source.AI,
+        )
+
+    def _latest_diagnosis(self):
+        return self.conversation.diagnoses.select_related("recommended_service").first()
+
+    def _offer_booking(self, diagnosis=None):
+        if diagnosis and diagnosis.recommended_service:
+            content = (
+                f"Great, let's get a mechanic on it. I've pre-selected **{diagnosis.recommended_service.name}**. "
+                "Just pick a date, a time slot and whether you want to bring the car in or have us come to you."
+            )
+        else:
+            content = (
+                "Sure. If you're not sure what's wrong, a general inspection is a good start. You can also describe "
+                "the problem first and I'll suggest the right service."
+            )
+        return BotReply(content, kind=Kind.BOOKING_PROMPT, action="open_booking")
+
+    def _cost_answer(self, diagnosis):
+        service = diagnosis.recommended_service
+        if not service:
+            return BotReply("The mechanic will give you an exact quote after inspecting the car, before starting any work.")
+        car = self.conversation.vehicle_label or "your car"
+        return BotReply(
+            f"For {service.name.lower()} you're usually looking at {format_rupees(diagnosis.estimated_cost_min)} - "
+            f"{format_rupees(diagnosis.estimated_cost_max)}. The final price depends on the parts needed for {car}, "
+            "and the mechanic confirms it with you before starting any work.\n\nWant me to book it?",
+            quick_replies=["Yes, book a mechanic", "Not right now"],
+        )
+
+    def _price_answer(self, issue):
+        service = self._service_for(issue)
+        if not service:
+            return self._start_issue(issue, "")
+        return BotReply(
+            f"{service.name} usually costs between {format_rupees(service.price_min)} and "
+            f"{format_rupees(service.price_max)} with us. The exact amount depends on the car and the parts needed.\n\n"
+            "Is something wrong with the car right now? Describe it and I'll help figure out what's needed.",
+            quick_replies=["Book a mechanic"],
+        )
+
+    def _safety_answer(self, diagnosis):
+        if diagnosis.safe_to_drive:
+            content = "It should be okay for short, gentle drives, but don't leave it too long."
+        else:
+            content = (
+                "Honestly, I wouldn't drive it until it's been checked. We can send a mechanic to you or pick the car up."
+            )
+        if diagnosis.advice:
+            content += f" {diagnosis.advice}"
+        return BotReply(content, quick_replies=["Book a mechanic"])
+
+    @staticmethod
+    def _service_for(issue):
+        return Service.objects.filter(code=issue.service_code, is_active=True).first()
+
+    # ---- AI answers ------------------------------------------------------
+
+    def _answer_general_question(self, raw):
+        if not self.gemini.enabled:
+            return BotReply(replies.NO_AI_FOR_QUESTIONS, quick_replies=replies.STARTER_PROMPTS)
+
+        diagnosis = self._latest_diagnosis()
+        car = self.conversation.vehicle_label
+        cache_key = "answer:" + hashlib.sha256(
+            f"{normalize(raw)}|{car}|{diagnosis.title if diagnosis else ''}".encode()
+        ).hexdigest()
+
+        answer = cache.get(cache_key)
+        if answer is None:
+            try:
+                answer = self.gemini.generate_text(self._question_prompt(raw, car, diagnosis), system=MECHANIC_PERSONA)
+            except GeminiError as exc:
+                logger.warning("General question failed: %s", exc)
+                return BotReply(replies.AI_UNAVAILABLE)
+            self.used_ai = True
+            cache.set(cache_key, answer, AI_ANSWER_CACHE_SECONDS)
+
+        if answer.strip().upper().startswith("OFF_TOPIC"):
+            return self._reject()
+        return BotReply(answer.strip())
+
+    def _question_prompt(self, raw, car, diagnosis):
+        recent = list(self.conversation.messages.order_by("-created_at")[:AI_HISTORY_MESSAGES])
+        history = "\n".join(
+            f"{'Customer' if message.role == Message.Role.USER else 'Mechanic'}: {message.content[:500]}"
+            for message in reversed(recent)
+            if message.content
+        )
+        return f"""Conversation so far:
+{history or "(none)"}
+
+Customer's car: {car or "unknown"}
+Latest diagnosis: {diagnosis.title if diagnosis else "none yet"}
+
+Customer's question: {raw}
+
+Answer in under 120 words. If it sounds like a fault that needs hands-on inspection, say so and suggest booking a mechanic."""
+
+    # ---- helpers ---------------------------------------------------------
+
+    def _reject(self, reprompt=None):
+        question = self._question_by_key(reprompt) if reprompt and not reprompt.startswith("triage:") else None
+        if question:
+            return BotReply(
+                f"{replies.OFF_TOPIC}\n\nComing back to your car: {question.text}",
+                kind=Kind.REJECTION,
+                quick_replies=list(question.options),
+            )
+        return BotReply(replies.OFF_TOPIC, kind=Kind.REJECTION)
+
+    def _look_at_media(self, attachments, raw, preface):
+        if not attachments:
+            return []
+
+        issue = self.issue
+        notes, unanalysed = [], []
+        for attachment in attachments:
+            analysis, called_ai = analyse_attachment(attachment, self.gemini, raw, issue.label if issue else "")
+            self.used_ai = self.used_ai or called_ai
+            kind_name = replies.KIND_NAMES.get(attachment.kind, "file")
+            if not analysis:
+                unanalysed.append(kind_name)
+            elif not analysis.get("car_related"):
+                preface.append(replies.MEDIA_NOT_CAR.format(kind=kind_name))
+            elif analysis.get("observations"):
+                notes.append(analysis)
+                preface.append(f"About your {kind_name}: {analysis['observations']}")
+
+        if unanalysed:
+            preface.append(replies.MEDIA_SAVED.format(kinds=" and ".join(dict.fromkeys(unanalysed))))
+
+        if notes:
+            saved = self.state.get("media_notes", []) + [note["observations"] for note in notes]
+            self.state["media_notes"] = saved[-MAX_MEDIA_NOTES:]
+        return notes
+
+    def _remember_vehicle(self, raw):
+        details = extract_vehicle_details(raw)
+        if not details:
+            return
+        conversation = self.conversation
+        # an explicit answer to "which car is it?" can overwrite, anything else only fills gaps
+        overwrite = self.state.get("pending") == VEHICLE_QUESTION.key
+        fields = {
+            "make": "vehicle_make",
+            "model": "vehicle_model",
+            "year": "vehicle_year",
+            "odometer_km": "odometer_km",
+            "fuel_type": "fuel_type",
+        }
+        for key, attribute in fields.items():
+            if key in details and (overwrite or not getattr(conversation, attribute)):
+                setattr(conversation, attribute, details[key])
+
+    @staticmethod
+    def _safety_alert(normalized):
+        for patterns, message in SAFETY_ALERTS:
+            if mentions_any(normalized, patterns):
+                return message
+        return None
+
+    def _make_title(self, issue):
+        car = " ".join(part for part in (self.conversation.vehicle_make, self.conversation.vehicle_model) if part)
+        return f"{issue.label} - {car}"[:120] if car else issue.label
+
+    def _save(self):
+        conversation = self.conversation
+        # title was set before we knew the car, add it now
+        if self.issue and conversation.title == self.issue.label and conversation.vehicle_make:
+            conversation.title = self._make_title(self.issue)
+        conversation.state = self.state
+        conversation.save()
