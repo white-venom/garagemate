@@ -81,11 +81,13 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     service = serializers.SlugRelatedField(slug_field="code", queryset=Service.objects.filter(is_active=True))
     conversation_id = serializers.UUIDField(required=False, allow_null=True)
     diagnosis_id = serializers.IntegerField(required=False, allow_null=True)
+    # remember name / phone / car in the profile for next time
+    save_details = serializers.BooleanField(required=False, default=False)
 
     class Meta:
         model = Booking
         fields = [
-            "service", "conversation_id", "diagnosis_id",
+            "service", "conversation_id", "diagnosis_id", "save_details",
             "customer_name", "phone", "email",
             "vehicle_make", "vehicle_model", "vehicle_year", "registration_number",
             "service_mode", "address", "scheduled_date", "time_slot", "notes",

@@ -50,12 +50,15 @@ INSTALLED_APPS = [
     "chat",
     "diagnosis",
     "bookings",
+    "apilogs",
+    "customers",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "apilogs.middleware.RequestLogMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -160,13 +163,16 @@ if DEBUG:
 
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
 CORS_ALLOWED_ORIGIN_REGEXES = env_list("CORS_ALLOWED_ORIGIN_REGEXES")
-CORS_ALLOW_HEADERS = (*default_headers, "x-client-id")
+CORS_ALLOW_HEADERS = (*default_headers, "x-client-id", "x-gemini-key")
 
 
+# Throttling and cached Gemini answers live here. The DB cache is shared by all
+# gunicorn workers and copes with parallel requests (the file cache didn't on Windows).
+# The table is created by a migration (apilogs 0002).
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-        "LOCATION": os.getenv("CACHE_DIR", BASE_DIR / ".cache"),
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
         "TIMEOUT": 60 * 60 * 24,
     }
 }

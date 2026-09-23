@@ -24,6 +24,10 @@ class Conversation(models.Model):
     vehicle_year = models.PositiveSmallIntegerField(null=True, blank=True)
     odometer_km = models.PositiveIntegerField(null=True, blank=True)
     fuel_type = models.CharField(max_length=12, blank=True)
+    # set when the customer confirmed it's one of the cars saved in their profile
+    car = models.ForeignKey(
+        "customers.Car", on_delete=models.SET_NULL, null=True, blank=True, related_name="conversations"
+    )
 
     # where we are in the follow-up questions for the current issue
     # {"description": "...", "answers": {...}, "pending": "noise", "media_notes": [...]}
@@ -73,6 +77,8 @@ class Message(models.Model):
         "bookings.Booking", on_delete=models.SET_NULL, null=True, blank=True, related_name="messages"
     )
     used_ai = models.BooleanField(default=False)
+    # set when Gemini was needed but failed (quota, overloaded...) and the rules answered instead
+    ai_error = models.CharField(max_length=30, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

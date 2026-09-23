@@ -1,10 +1,15 @@
 """Canned replies. Keeping them here so the flow code stays readable."""
 
 GREETING = (
-    "Hi! I'm GarageMate, your virtual mechanic. Tell me what's going on with your car: strange noises, "
+    "Hi{name}! I'm GarageMate, your virtual mechanic. Tell me what's going on with {car}: strange noises, "
     "warning lights, smells, leaks, starting trouble, anything that feels off.\n\n"
     "You can also send a photo, a short video, or record the sound it's making."
 )
+
+
+def greeting(name="", car=""):
+    return GREETING.format(name=f" {name}" if name else "", car=f"your {car}" if car else "your car")
+
 
 STARTER_PROMPTS = [
     "Brakes are squeaking",

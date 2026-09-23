@@ -12,6 +12,7 @@ Rules decide what to say next. Gemini only gets called for:
 import hashlib
 import logging
 from dataclasses import dataclass, field
+from functools import cached_property
 
 from django.core.cache import cache
 
@@ -19,12 +20,14 @@ from bookings.models import Service
 from core.gemini import GeminiClient, GeminiError
 from core.prompts import MECHANIC_PERSONA
 from core.text import mentions_any, normalize, word_count
+from customers.services import find_mentioned_car, get_customer
 from diagnosis.engine import build_diagnosis, detect_issue, diagnosis_message, format_rupees
 from diagnosis.knowledge_base import (
     ISSUE_TYPES_BY_KEY,
     SAFETY_ALERTS,
     TRIAGE_QUESTIONS,
     VEHICLE_QUESTION,
+    Question,
 )
 from diagnosis.models import Diagnosis
 
@@ -38,6 +41,8 @@ logger = logging.getLogger(__name__)
 AI_HISTORY_MESSAGES = 8
 AI_ANSWER_CACHE_SECONDS = 60 * 60 * 24
 MAX_MEDIA_NOTES = 5
+# "Is this about your Swift?" - asked instead of the vehicle question when the customer saved cars
+SAVED_CAR_KEY = "saved_car"
 
 Stage = Conversation.Stage
 Kind = Message.Kind
@@ -51,6 +56,8 @@ class BotReply:
     action: str = ""
     diagnosis: Diagnosis = None
     used_ai: bool = False
+    # why Gemini couldn't help with this reply (quota, overloaded...), empty if it wasn't needed or worked
+    ai_error: str = ""
 
 
 class MechanicBot:
@@ -63,6 +70,14 @@ class MechanicBot:
     @property
     def issue(self):
         return ISSUE_TYPES_BY_KEY.get(self.conversation.issue_category)
+
+    @cached_property
+    def customer(self):
+        return get_customer(self.conversation.client_id)
+
+    @cached_property
+    def saved_cars(self):
+        return list(self.customer.cars.all()) if self.customer else []
 
     def reply(self, text, attachments=()):
         raw = (text or "").strip()
@@ -80,13 +95,15 @@ class MechanicBot:
 
         if preface:
             reply.content = "\n\n".join([*preface, reply.content])
-        reply.used_ai = reply.used_ai or self.used_ai
-        self._save()
-        return reply
+        return self._finish(reply)
 
     def diagnose_now(self):
         """Skip whatever follow-up questions are left and diagnose (POST /api/diagnosis/)."""
-        reply = self._diagnose()
+        return self._finish(self._diagnose())
+
+    def _finish(self, reply):
+        reply.used_ai = reply.used_ai or self.used_ai
+        reply.ai_error = getattr(self.gemini, "last_failure", None) or ""
         self._save()
         return reply
 
@@ -116,7 +133,11 @@ class MechanicBot:
         if intents.wants_booking(normalized):
             return self._offer_booking()
         if intents.is_greeting(normalized):
-            return BotReply(replies.GREETING, quick_replies=replies.STARTER_PROMPTS)
+            customer = self.customer
+            car = self.saved_cars[0].short_name if self.saved_cars else ""
+            return BotReply(
+                replies.greeting(customer.first_name if customer else "", car), quick_replies=replies.STARTER_PROMPTS
+            )
         if intents.is_thanks(normalized):
             return BotReply(replies.THANKS)
         if intents.is_off_topic(normalized):
@@ -151,6 +172,9 @@ class MechanicBot:
         if pending.startswith("triage:"):
             return self._handle_triage_answer(pending.split(":", 1)[1], raw)
 
+        if pending == SAVED_CAR_KEY:
+            return self._handle_car_choice(raw, normalized)
+
         if intents.wants_booking(normalized) and not detect_issue(raw):
             return self._offer_booking()
 
@@ -165,6 +189,20 @@ class MechanicBot:
 
         self.state.setdefault("answers", {})[pending] = raw
         return self._next_step()
+
+    def _handle_car_choice(self, raw, normalized):
+        self.state.setdefault("answers", {})[SAVED_CAR_KEY] = raw
+        conversation = self.conversation
+        # "Yes, my Swift" / picking one of the cars is already handled by _remember_vehicle,
+        # and so is typing a different car's details straight away
+        if conversation.car_id or conversation.vehicle_make or conversation.vehicle_model:
+            return self._next_step()
+        if len(self.saved_cars) == 1 and intents.is_yes(normalized):
+            self._use_car(self.saved_cars[0])
+            return self._next_step()
+        # "A different car"
+        self.state["pending"] = VEHICLE_QUESTION.key
+        return BotReply(VEHICLE_QUESTION.text, kind=Kind.QUESTION, quick_replies=list(VEHICLE_QUESTION.options))
 
     def _handle_after_diagnosis(self, raw, normalized):
         diagnosis = self._latest_diagnosis()
@@ -208,7 +246,7 @@ class MechanicBot:
             return reply
 
         self.state["pending"] = question.key
-        if question.key == VEHICLE_QUESTION.key:
+        if question.key in (VEHICLE_QUESTION.key, SAVED_CAR_KEY):
             self.state["vehicle_asked"] = True
         content = f"{intro}\n\n{question.text}" if intro else question.text
         return BotReply(content, kind=Kind.QUESTION, quick_replies=list(question.options))
@@ -223,8 +261,12 @@ class MechanicBot:
         questions = list(issue.questions)
         vehicle_known = self.conversation.vehicle_make or self.conversation.vehicle_model
         if not vehicle_known and not self.state.get("vehicle_asked"):
-            # ask about the car after the first symptom question, feels less like a form that way
-            questions.insert(1, VEHICLE_QUESTION)
+            if self.saved_cars:
+                # one tap to confirm, so ask it first
+                questions.insert(0, self._saved_car_question())
+            else:
+                # ask about the car after the first symptom question, feels less like a form that way
+                questions.insert(1, VEHICLE_QUESTION)
 
         for question in questions:
             if question.key in answers:
@@ -234,9 +276,18 @@ class MechanicBot:
             return question
         return None
 
+    def _saved_car_question(self):
+        cars = self.saved_cars
+        if len(cars) == 1:
+            car = cars[0]
+            return Question(SAVED_CAR_KEY, f"Is this about your {car.label}?", (f"Yes, my {car.short_name}", "A different car"))
+        return Question(SAVED_CAR_KEY, "Which of your cars is this about?", (*[car.label for car in cars[:4]], "A different car"))
+
     def _question_by_key(self, key):
         if key == VEHICLE_QUESTION.key:
             return VEHICLE_QUESTION
+        if key == SAVED_CAR_KEY:
+            return self._saved_car_question()
         issue = self.issue
         if issue:
             for question in issue.questions:
@@ -364,7 +415,9 @@ class MechanicBot:
         answer = cache.get(cache_key)
         if answer is None:
             try:
-                answer = self.gemini.generate_text(self._question_prompt(raw, car, diagnosis), system=MECHANIC_PERSONA)
+                answer = self.gemini.generate_text(
+                    self._question_prompt(raw, car, diagnosis), system=MECHANIC_PERSONA, purpose="open question"
+                )
             except GeminiError as exc:
                 logger.warning("General question failed: %s", exc)
                 return BotReply(replies.AI_UNAVAILABLE)
@@ -430,13 +483,31 @@ Answer in under 120 words. If it sounds like a fault that needs hands-on inspect
             self.state["media_notes"] = saved[-MAX_MEDIA_NOTES:]
         return notes
 
+    def _use_car(self, car):
+        conversation = self.conversation
+        conversation.car = car
+        conversation.vehicle_make = car.make
+        conversation.vehicle_model = car.model
+        conversation.vehicle_year = car.year
+        conversation.fuel_type = car.fuel_type
+        conversation.odometer_km = car.odometer_km
+        self.state["vehicle_asked"] = True
+
     def _remember_vehicle(self, raw):
+        conversation = self.conversation
+        # "my swift" when a Swift is saved in the profile -> that car, no need to ask
+        if not conversation.car_id and self.saved_cars and self.state.get("pending") != VEHICLE_QUESTION.key:
+            car = find_mentioned_car(self.saved_cars, raw)
+            if car:
+                self._use_car(car)
+
         details = extract_vehicle_details(raw)
         if not details:
             return
-        conversation = self.conversation
         # an explicit answer to "which car is it?" can overwrite, anything else only fills gaps
         overwrite = self.state.get("pending") == VEHICLE_QUESTION.key
+        if overwrite:
+            conversation.car = None
         fields = {
             "make": "vehicle_make",
             "model": "vehicle_model",

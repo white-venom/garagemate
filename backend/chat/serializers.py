@@ -31,7 +31,7 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             "id", "role", "kind", "content", "quick_replies", "action", "attachments", "diagnosis", "booking",
-            "used_ai", "created_at",
+            "used_ai", "ai_error", "created_at",
         ]
 
 
@@ -51,7 +51,7 @@ class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = [
-            "id", "title", "stage", "issue_category", "vehicle", "latest_diagnosis", "last_message",
+            "id", "title", "stage", "issue_category", "vehicle", "car_id", "latest_diagnosis", "last_message",
             "created_at", "updated_at",
         ]
 

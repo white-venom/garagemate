@@ -29,6 +29,7 @@ def _save_reply(conversation, reply):
         action=reply.action,
         diagnosis=reply.diagnosis,
         used_ai=reply.used_ai,
+        ai_error=reply.ai_error,
     )
 
 

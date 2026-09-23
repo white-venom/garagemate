@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from chat.services import record_booking
 from core.client import get_client_id
 from core.exceptions import Conflict
+from customers.services import remember_booking_details
 
 from .models import Booking, Service
 from .serializers import BookingCreateSerializer, BookingSerializer, ServiceSerializer, SlotQuerySerializer
@@ -41,9 +42,13 @@ class BookingCreateView(APIView):
         serializer = BookingCreateSerializer(data=request.data, context={"client_id": client_id})
         serializer.is_valid(raise_exception=True)
 
-        booking = create_booking(**serializer.validated_data)
+        data = dict(serializer.validated_data)
+        save_details = data.pop("save_details", False)
+        booking = create_booking(**data)
         if booking.conversation:
             record_booking(booking.conversation, booking)
+        if save_details:
+            remember_booking_details(client_id, booking)
 
         # the person who just booked can see their own full phone number
         data = BookingSerializer(booking, context={"mask_phone": False}).data

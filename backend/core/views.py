@@ -20,6 +20,8 @@ def api_index(request):
                 "slots": "GET /api/booking/slots/?date=YYYY-MM-DD",
                 "services": "GET /api/services/",
                 "conversations": "GET /api/conversations/, GET|DELETE /api/conversations/{id}/",
+                "profile": "GET|PUT /api/profile/, POST /api/profile/cars/, PATCH|DELETE /api/profile/cars/{id}/",
+                "logs": "GET /api/logs/, POST /api/ai/check/",
                 "health": "GET /api/health/",
             },
         }

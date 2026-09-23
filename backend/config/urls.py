@@ -13,6 +13,8 @@ urlpatterns = [
     path("api/", include("chat.urls")),
     path("api/", include("diagnosis.urls")),
     path("api/", include("bookings.urls")),
+    path("api/", include("apilogs.urls")),
+    path("api/", include("customers.urls")),
 ]
 
 if settings.DEBUG:
