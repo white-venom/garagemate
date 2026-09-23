@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: #f5f5f4;
+  color: #1c1917;
+}
+
+/* markdown inside chat bubbles */
+.chat-markdown p + p,
+.chat-markdown p + ul,
+.chat-markdown ul + p,
+.chat-markdown p + ol {
+  margin-top: 0.6rem;
+}
+
+.chat-markdown ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+
+.chat-markdown ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+
+.chat-markdown strong {
+  font-weight: 600;
+}
+
+.typing-dot {
+  animation: typing 1.2s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
