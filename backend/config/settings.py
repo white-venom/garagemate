@@ -182,9 +182,11 @@ if RUNNING_TESTS:
 # Gemini is optional. Without a key the bot still works using the rule based
 # flow, it just can't look at photos/audio or answer free-form questions.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
-GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "40"))
+# flash-lite answers in ~1-2s. The bigger flash models were 5-25s and often
+# "overloaded" on the free tier, too slow for a chat.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash")
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25"))
 
 
 if not DEBUG:
@@ -210,6 +212,7 @@ LOGGING = {
     "loggers": {
         "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "httpx": {"level": "WARNING"},
+        "google_genai": {"level": "WARNING"},
     },
 }
 

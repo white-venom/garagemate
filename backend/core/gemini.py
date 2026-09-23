@@ -79,6 +79,8 @@ class GeminiClient:
             max_output_tokens=max_tokens,
             response_mime_type="application/json" if schema else None,
             response_json_schema=schema,
+            # we never pass tools, no need for the SDK's function calling loop
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
         last_error = None
