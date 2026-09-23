@@ -1,5 +1,6 @@
 from unittest import mock
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
@@ -141,6 +142,7 @@ class ChatApiTests(TestCase):
 
 class ChatWithAiTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient(HTTP_X_CLIENT_ID=CLIENT_ID)
 
     def test_general_question_uses_ai_and_caches(self):

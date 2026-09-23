@@ -162,6 +162,7 @@ def _ai_review(gemini, conversation, issue, ranked, evidence, rules_severity):
         _review_prompt(conversation, issue, ranked, evidence),
         schema=DIAGNOSIS_SCHEMA,
         system=MECHANIC_PERSONA,
+        purpose="diagnosis second opinion",
     )
 
     causes = []

@@ -101,6 +101,7 @@ def analyse_attachment(attachment, gemini, customer_text="", issue_label=""):
             schema=MEDIA_SCHEMA,
             system=MECHANIC_PERSONA,
             media=[MediaInput(data=data, mime_type=gemini_mime_type(attachment.mime_type))],
+            purpose=f"{KIND_DESCRIPTIONS[attachment.kind]} analysis",
         )
     except (GeminiError, OSError) as exc:
         logger.warning("Could not analyse attachment %s: %s", attachment.pk, exc)

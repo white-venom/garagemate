@@ -9,7 +9,6 @@ backend/.env
 backend/db.sqlite3*
 backend/media/
 backend/staticfiles/
-backend/.cache/
 
 # editors / os
 .vscode/
