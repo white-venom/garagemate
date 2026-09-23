@@ -15,18 +15,36 @@ Built for the Full-Stack Developer Intern task.
 
 ## Features
 
+**Chat**
 - Chat by text, or attach photos, audio clips and videos. There's also a mic button to record the noise
-  the car is making straight from the browser.
+  the car is making straight from the browser (converted to WAV in the browser before upload).
 - Only handles car related stuff. Off-topic questions get a polite "sorry, I can only help with cars".
-- Asks 2-4 follow-up questions (with tap-to-answer quick replies) before diagnosing. Questions the user
-  already answered in their first message are skipped.
-- Diagnosis card: most likely cause, other possible causes with a likelihood, severity, whether it's safe
-  to drive, the recommended service with a price range, and what to do until the car is checked.
+- Asks 2-4 follow-up questions (tap-to-answer quick replies) before diagnosing. Questions the user already
+  answered in their first message are skipped.
 - Safety warnings straight away for things like fuel smell, smoke, brake failure or the oil pressure light.
-- "Book Mechanic" from the diagnosis. The backend checks slot availability and assigns the least busy free
-  mechanic. A mechanic can't be double booked (DB constraint).
-- Sidebar with conversation / diagnosis history, booking status page with a cancel option.
-- Works on mobile.
+- Progress stepper in the header: Describe -> Questions -> Diagnosis -> Booking.
+
+**Diagnosis & booking**
+- Diagnosis card ("inspection report"): most likely cause, other possible causes with a likelihood, a
+  severity gauge, whether it's safe to drive, the recommended service with a price range, and what to do
+  until the car is checked.
+- "Book a mechanic" from the diagnosis. Live slot availability, the least busy free mechanic is assigned
+  automatically, and a mechanic can't be double booked (DB constraint). Booking status page with cancel.
+
+**Personalised ("My garage")**
+- Optional profile with the customer's name, phone and their cars (make, model, year, fuel, km, reg no).
+- The bot greets them by name. When they say "my car" it asks *"Is this about your 2017 Maruti Suzuki Swift?"*
+  with one-tap answers instead of making them type the car again. Saying "my swift" picks the saved car
+  directly.
+- The booking form is prefilled from the profile, and a "save my details" tick stores new details for next time.
+
+**Transparency for reviewers**
+- **API logs panel** (header button): every GET/POST this browser made, with status code and timing, plus
+  every Gemini call made inside it (purpose, model, time, and why it failed if it did).
+- Gemini status card with counters: total API calls, bot replies, replies handled by rules only, Gemini calls.
+- If Gemini fails (free tier quota, overloaded, timeout...) the reply gets a small note saying the rule based
+  fallback answered, so the app never looks broken. If our key keeps failing, the panel offers a field to
+  use your own Gemini key (stored only in your browser, sent per request, never saved on the server).
 
 ## Where AI is used (and where it isn't)
 
@@ -38,17 +56,16 @@ there's no reasonable way to do it with rules.
 | Is this about cars? greeting / thanks / yes / no | keyword and regex rules |
 | Working out the problem area (brakes, AC, battery...) | weighted keywords from a knowledge base |
 | Follow-up questions | knowledge base, one question at a time |
-| Car make / model / year / km from free text | regex + list of Indian market models |
+| Car make / model / year / km from free text, matching saved cars | regex + list of Indian market models |
 | Diagnosis | rule based scoring of possible causes |
 | Diagnosis when the rules aren't confident, or photos/audio were sent | Gemini second opinion |
 | Looking at photos, listening to recordings, watching videos | Gemini |
 | Open questions like "which oil grade for a Creta?" | Gemini (answers cached for 24h) |
-| Emergency warnings | rules |
-| Booking, slots, mechanic assignment, prices | Django |
+| Emergency warnings, booking, slots, prices, profile | plain Django |
 
-Every bot message has a `used_ai` flag, so it's easy to see how often Gemini was actually needed (it's
-also shown in the UI). Without a `GEMINI_API_KEY` the whole flow still works, the bot just can't look at
-media or answer open questions.
+Default model is `gemini-3.5-flash-lite` (1-2s answers on the free tier) with `gemini-2.5-flash` as the
+fallback when the first one is out of quota or overloaded. Both are configurable. Without a
+`GEMINI_API_KEY` the whole flow still works, the bot just can't look at media or answer open questions.
 
 ## Tech stack
 
@@ -64,10 +81,12 @@ backend/
   chat/            conversations, messages, uploads, the bot itself (chat/bot/)
   diagnosis/       symptom knowledge base + diagnosis engine
   bookings/        services, mechanics, bookings, slot logic
+  customers/       "My garage" profile and saved cars
+  apilogs/         request logging middleware, logs endpoint, Gemini key check
   deploy/          systemd service, nginx config, EC2 setup script
 frontend/
   src/app/         pages (chat, booking status)
-  src/components/  chat UI, diagnosis card, booking modal...
+  src/components/  chat UI, diagnosis card, booking / profile modals, API logs panel
   src/lib/         API client, types, helpers
 docs/              API docs and architecture notes
 ```
@@ -84,7 +103,7 @@ python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env               # add GEMINI_API_KEY if you have one (optional)
-python manage.py migrate           # also seeds the services and mechanics
+python manage.py migrate           # also seeds services + mechanics and creates the cache table
 python manage.py createsuperuser   # optional, for /admin
 python manage.py runserver
 ```
@@ -105,7 +124,7 @@ Open http://localhost:3000
 ### Tests
 
 ```bash
-cd backend && python manage.py test      # 61 tests, Gemini is mocked
+cd backend && python manage.py test      # 80 tests, Gemini is mocked
 cd frontend && npm run lint && npm run build
 ```
 
@@ -128,7 +147,7 @@ cd frontend && npm run lint && npm run build
    ```
 
    The script installs nginx + certbot, sets up the venv, runs migrations, starts gunicorn as a systemd
-   service, gets an HTTPS certificate and adds a daily cron job that removes unused uploads.
+   service, gets an HTTPS certificate and adds daily cron jobs that remove unused uploads and old API logs.
 4. Later updates: `bash deploy/update.sh`
 
 SQLite is fine here since there's a single server. The database file and uploads live on the instance's EBS volume.
@@ -152,6 +171,7 @@ Backend (`backend/.env`, see `.env.example` for all of them):
 | `CORS_ALLOWED_ORIGINS` | frontend URL(s) |
 | `GEMINI_API_KEY` | optional, free key from Google AI Studio |
 | `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` | fallback is used if the first one hits its quota |
+| `GEMINI_TIMEOUT_SECONDS` | per call, default 25 |
 | `SQLITE_PATH`, `MEDIA_ROOT` | where the DB and uploads go |
 | `THROTTLE_*` | per-IP rate limits |
 
@@ -159,8 +179,9 @@ Frontend: `NEXT_PUBLIC_API_URL` only.
 
 ## Things I'd improve with more time
 
-- Real accounts (phone OTP) instead of an anonymous browser id.
+- Real accounts (phone OTP) instead of an anonymous browser id, so the garage profile follows you across devices.
 - Move Gemini calls to a background worker (Celery/RQ) so a slow AI response doesn't hold a gunicorn worker.
 - Postgres once there's more than one server.
 - SMS / WhatsApp confirmation for bookings, and a small panel for mechanics to update job status.
+- Service history per saved car (last service date, km) so the bot can say "you're due for a service".
 - Tune the knowledge base weights with real workshop data instead of my own guesses.

@@ -14,8 +14,12 @@ X-Client-Id: 3f6c1a2e-8d4b-4f7a-9c1e-2b5d7e9f0a13
 ```
 
 It can also be sent as `client_id` in the JSON body or query string. 8-64 characters, letters, numbers
-and dashes. Conversations, uploads and diagnoses are only visible to the same client id, anyone else
-gets a 404.
+and dashes. Conversations, uploads, diagnoses, the profile and the API logs are only visible to the same
+client id, anyone else gets a 404.
+
+Optional: `X-Gemini-Key: <your key>` makes the backend use that Gemini key for this one request instead of
+the server's key. The frontend only sends it when the visitor added their own key in the API logs panel
+(because ours ran out of quota). It's never stored or logged.
 
 ## Errors
 
@@ -79,6 +83,7 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
     "stage": "gathering",
     "issue_category": "brakes",
     "vehicle": { "make": "", "model": "", "year": null, "odometer_km": null, "fuel_type": "" },
+    "car_id": null,
     "latest_diagnosis": null,
     "last_message": "Brake problems are worth taking seriously, let's narrow it down...",
     "created_at": "2026-09-23T12:56:40.361359+05:30",
@@ -95,6 +100,7 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
     "diagnosis": null,
     "booking": null,
     "used_ai": false,
+    "ai_error": "",
     "created_at": "2026-09-23T12:56:40.376868+05:30"
   },
   "reply": {
@@ -108,6 +114,7 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
     "diagnosis": null,
     "booking": null,
     "used_ai": false,
+    "ai_error": "",
     "created_at": "2026-09-23T12:56:40.409066+05:30"
   }
 }
@@ -122,8 +129,13 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
 - `diagnosis`: full diagnosis object when `kind` is `diagnosis` (see below)
 - `booking`: short booking summary when `kind` is `booking_confirmed`
 - `used_ai`: `true` if Gemini was called to produce this reply
+- `ai_error`: set when Gemini was needed but failed and the rules answered instead. One of `quota`,
+  `overloaded`, `timeout`, `invalid_key`, `model_not_found`, `empty`, `error`. Empty otherwise
 
 **Conversation `stage`:** `new` -> `gathering` (asking follow-up questions) -> `diagnosed` -> `booked`
+
+**Conversation `car_id`:** id of the saved car (see Profile below) the conversation is about, once the
+customer confirmed it ("Is this about your 2017 Maruti Suzuki Swift?" -> "Yes, my Swift").
 
 **Errors:** 400 if both message and attachments are empty, or an attachment id is invalid / already used.
 404 if the conversation doesn't exist for this client.
@@ -301,6 +313,7 @@ comes from a conversation, a confirmation message is added to the chat and the c
 | `notes` | string | optional |
 | `conversation_id` | uuid | optional, links the booking to the chat |
 | `diagnosis_id` | int | optional, must belong to that conversation |
+| `save_details` | bool | optional, saves name / phone / email and the car to the profile |
 
 ```json
 {
@@ -383,6 +396,134 @@ The conversation plus all `messages` in order (same message shape as the chat re
 
 Deletes the conversation with its messages, diagnoses and uploaded files. Bookings are kept.
 Returns 204.
+
+---
+
+## Profile ("My garage")
+
+Optional. Used to personalise the chat (greeting by name, "is this about your Swift?") and to prefill
+bookings.
+
+### GET /api/profile/
+
+Returns an empty profile (not a 404) if nothing was saved yet.
+
+```json
+{
+  "name": "Rahul Verma",
+  "phone": "9876543210",
+  "email": "",
+  "city": "Pune",
+  "cars": [
+    {
+      "id": 2,
+      "make": "Maruti Suzuki",
+      "model": "Swift",
+      "year": 2017,
+      "fuel_type": "petrol",
+      "odometer_km": 65000,
+      "registration_number": "MH12AB1234",
+      "is_primary": true,
+      "label": "2017 Maruti Suzuki Swift",
+      "created_at": "2026-09-23T16:35:51.574800+05:30"
+    }
+  ]
+}
+```
+
+### PUT /api/profile/
+
+Update any of `name`, `phone`, `email`, `city` (partial updates are fine). Returns the profile.
+
+### POST /api/profile/cars/
+
+| Field | Type | |
+|---|---|---|
+| `make`, `model` | string | required |
+| `year` | int | optional, 1980 to next year |
+| `fuel_type` | string | optional: `petrol`, `diesel`, `cng`, `electric`, `hybrid`, `lpg` |
+| `odometer_km` | int | optional |
+| `registration_number` | string | optional, uppercased |
+| `is_primary` | bool | optional, the first car is primary automatically |
+
+Up to 5 cars. Returns the car (201).
+
+### PATCH /api/profile/cars/{id}/
+
+Same fields, all optional. `{"is_primary": true}` makes it the primary car.
+
+### DELETE /api/profile/cars/{id}/
+
+204. If it was the primary car, the oldest remaining car becomes primary.
+
+**How the bot uses it**
+
+- greeting: "Hi Rahul! ... Tell me what's going on with your Swift"
+- if the car isn't known yet, the first follow-up question is "Is this about your 2017 Maruti Suzuki Swift?"
+  (`["Yes, my Swift", "A different car"]`), or "Which of your cars is this about?" with one button per car
+- "my swift is overheating" picks the saved Swift straight away, no question needed
+
+---
+
+## API logs
+
+### GET /api/logs/?limit=50
+
+This browser's recent API calls (newest first, max 100) with the Gemini calls made during each one,
+plus the status of the server's Gemini key. Polling this endpoint isn't logged itself.
+
+```json
+{
+  "gemini": {
+    "status": "ok",
+    "reason": "",
+    "last_call_at": "2026-09-23T16:35:54.248109+05:30",
+    "model": "gemini-3.5-flash-lite",
+    "fallback_model": "gemini-2.5-flash",
+    "using_custom_key": false
+  },
+  "stats": { "requests": 5, "bot_replies": 1, "handled_by_rules": 1, "ai_calls": 1, "ai_failures": 0 },
+  "results": [
+    {
+      "id": 45,
+      "method": "POST",
+      "path": "/api/ai/check/",
+      "status_code": 200,
+      "duration_ms": 2420,
+      "error": "",
+      "ai_calls": [
+        {
+          "purpose": "key check",
+          "model": "gemini-3.5-flash-lite",
+          "ok": true,
+          "reason": "",
+          "message": "",
+          "duration_ms": 2295,
+          "custom_key": false
+        }
+      ],
+      "created_at": "2026-09-23T16:35:54.248109+05:30"
+    }
+  ]
+}
+```
+
+- `gemini.status`: `ok`, `failing` (with `reason`), `unknown` (not called yet) or `not_configured`. Only
+  calls made with the server's key count, calls with a visitor's own key don't change it
+- `stats.handled_by_rules`: chat / diagnosis requests that were answered without any Gemini call
+- `ai_calls[].purpose`: `open question`, `photo analysis`, `audio recording analysis`, `video analysis`,
+  `diagnosis second opinion`, `key check`
+- `error`: the error message for 4xx / 5xx responses
+
+Only metadata is stored (no request bodies). Logs older than 7 days are deleted by `manage.py prune_logs`.
+
+### POST /api/ai/check/
+
+Makes one tiny Gemini call to see if it answers, with the server key or the `X-Gemini-Key` header.
+
+```json
+{ "ok": true, "reason": "", "using_custom_key": false, "duration_ms": 2389 }
+```
 
 ---
 
