@@ -6,14 +6,38 @@ and can book a mechanic if the customer wants one.
 
 Built for the Full-Stack Developer Intern task.
 
+## Links
+
 | | |
 |---|---|
-| Live app | https://garagemate-beta.vercel.app |
-| Live API | https://13-127-38-145.sslip.io/api/ |
-| Health check | https://13-127-38-145.sslip.io/api/health/ |
-| API docs | [docs/API.md](docs/API.md) |
-| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Live app (frontend, Vercel) | https://garagemate-beta.vercel.app |
+| GitHub repo | https://github.com/white-venom/garagemate |
+| Live API (AWS EC2), lists every endpoint | https://13-127-38-145.sslip.io/api/ |
+| Health check (DB + Gemini status) | https://13-127-38-145.sslip.io/api/health/ |
+| Services with prices | https://13-127-38-145.sslip.io/api/services/ |
+
+**Docs**
+
+| | |
+|---|---|
+| API docs (requests, responses, errors) | [docs/API.md](docs/API.md) |
+| Try the API with curl | [docs/API.md#quick-test-with-curl](docs/API.md#quick-test-with-curl) |
+| Architecture and database design | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | How Gemini is used (incl. web research) | [docs/AI_USAGE.md](docs/AI_USAGE.md) |
+
+**Required APIs on the live server**
+
+| Method | Endpoint | Live URL |
+|---|---|---|
+| POST | `/api/chat/` | https://13-127-38-145.sslip.io/api/chat/ |
+| POST | `/api/upload/` | https://13-127-38-145.sslip.io/api/upload/ |
+| POST | `/api/diagnosis/` | https://13-127-38-145.sslip.io/api/diagnosis/ |
+| POST | `/api/booking/` | https://13-127-38-145.sslip.io/api/booking/ |
+| GET | `/api/booking/{id}/` | `https://13-127-38-145.sslip.io/api/booking/{id}/` |
+
+These need an `X-Client-Id` header (any random 8-64 character id, the frontend makes one per browser),
+see [identifying the user](docs/API.md#identifying-the-user). After booking in the app, the booking status
+page is at `https://garagemate-beta.vercel.app/booking/{id}`.
 
 ## Features
 
