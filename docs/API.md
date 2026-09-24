@@ -1,6 +1,6 @@
 # API documentation
 
-Base URL: `https://YOUR-API-DOMAIN/api/` (locally `http://localhost:8000/api/`)
+Base URL: `https://13-127-38-145.sslip.io/api/` (locally `http://localhost:8000/api/`)
 
 All requests and responses are JSON, except file uploads which are `multipart/form-data`.
 

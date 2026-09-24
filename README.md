@@ -8,8 +8,9 @@ Built for the Full-Stack Developer Intern task.
 
 | | |
 |---|---|
-| Live app | https://YOUR-APP.vercel.app |
-| Live API | https://YOUR-API-DOMAIN/api/ |
+| Live app | https://garagemate-beta.vercel.app |
+| Live API | https://13-127-38-145.sslip.io/api/ |
+| Health check | https://13-127-38-145.sslip.io/api/health/ |
 | API docs | [docs/API.md](docs/API.md) |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
@@ -132,9 +133,18 @@ cd frontend && npm run lint && npm run build
 
 ### Backend on AWS (EC2 free tier)
 
-1. Launch an Ubuntu 24.04 `t2.micro` (or `t3.micro`) instance. Open ports 22, 80 and 443 in the security group.
-   Attach an Elastic IP so the address doesn't change.
-2. Point a domain at the IP. If you don't have one, `<ip-with-dashes>.sslip.io` works (e.g. `13-233-10-20.sslip.io`).
+1. Create the server with the CloudFormation template (Ubuntu 24.04 `t3.small`, security group with SSH only
+   from your IP, encrypted gp3 disk, Elastic IP):
+
+   ```bash
+   aws ec2 create-key-pair --key-name garagemate-key --key-type ed25519      --query KeyMaterial --output text > ~/.ssh/garagemate-key.pem
+   aws cloudformation deploy --stack-name garagemate-api --template-file backend/deploy/ec2-stack.yaml      --parameter-overrides KeyName=garagemate-key SshCidr=<your ip>/32
+   aws cloudformation describe-stacks --stack-name garagemate-api --query "Stacks[0].Outputs"
+   ```
+
+   The outputs include the IP, an `sslip.io` domain for it (e.g. `13-127-38-145.sslip.io`) and the SSH command.
+   (Doing it by hand in the console works too: launch the instance, open ports 22/80/443, attach an Elastic IP.)
+2. No domain needed, `<ip-with-dashes>.sslip.io` resolves to the IP and works with Let's Encrypt.
 3. SSH in and run:
 
    ```bash
@@ -143,7 +153,7 @@ cd frontend && npm run lint && npm run build
    cp .env.example .env
    nano .env    # DJANGO_DEBUG=false, secret key, allowed hosts, CORS origin of the Vercel app, Gemini key,
                 # MEDIA_ROOT=/var/www/garagemate/media
-   sudo bash deploy/setup_ec2.sh api.yourdomain.com you@example.com
+   sudo bash deploy/setup_ec2.sh 13-127-38-145.sslip.io     # email for Let's Encrypt is optional
    ```
 
    The script installs nginx + certbot, sets up the venv, runs migrations, starts gunicorn as a systemd
@@ -154,10 +164,17 @@ SQLite is fine here since there's a single server. The database file and uploads
 
 ### Frontend on Vercel
 
-1. Import the GitHub repo in Vercel and set **Root Directory** to `frontend`.
-2. Add the env var `NEXT_PUBLIC_API_URL=https://api.yourdomain.com`.
-3. Deploy. Then add the Vercel URL to `CORS_ALLOWED_ORIGINS` in the backend `.env` and restart
-   (`sudo systemctl restart garagemate`).
+With the Vercel CLI, from the `frontend` folder:
+
+```bash
+vercel link --project garagemate
+printf 'https://13-127-38-145.sslip.io' | vercel env add NEXT_PUBLIC_API_URL production
+vercel deploy --prod
+```
+
+(Or import the GitHub repo in the Vercel dashboard with **Root Directory** set to `frontend` and the same env var.)
+Then allow the Vercel URL in the backend: `CORS_ALLOWED_ORIGINS`, or `CORS_ALLOWED_ORIGIN_REGEXES` to also cover
+preview deployments, and `sudo systemctl restart garagemate`.
 
 ## Environment variables
 
