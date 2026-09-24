@@ -3,13 +3,15 @@
 #
 #   git clone https://github.com/white-venom/garagemate.git /home/ubuntu/garagemate
 #   cp /home/ubuntu/garagemate/backend/.env.example /home/ubuntu/garagemate/backend/.env   # and edit it
-#   sudo bash /home/ubuntu/garagemate/backend/deploy/setup_ec2.sh api.example.com you@example.com
+#   sudo bash /home/ubuntu/garagemate/backend/deploy/setup_ec2.sh api.example.com [you@example.com]
+#
+# The email is optional, Let's Encrypt only uses it for expiry reminders (certbot renews on its own).
 #
 # No domain? <elastic-ip>.sslip.io works fine, e.g. 13-233-10-20.sslip.io
 set -euo pipefail
 
-DOMAIN="${1:?usage: setup_ec2.sh <domain> <email for lets encrypt>}"
-EMAIL="${2:?usage: setup_ec2.sh <domain> <email for lets encrypt>}"
+DOMAIN="${1:?usage: setup_ec2.sh <domain> [email for lets encrypt]}"
+EMAIL="${2:-}"
 APP_USER=ubuntu
 BACKEND_DIR=/home/ubuntu/garagemate/backend
 MEDIA_DIR=/var/www/garagemate/media
@@ -55,7 +57,12 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
 
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL" --redirect
+if [ -n "$EMAIL" ]; then
+    CERT_CONTACT=(-m "$EMAIL")
+else
+    CERT_CONTACT=(--register-unsafely-without-email)
+fi
+certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos "${CERT_CONTACT[@]}" --redirect
 
 # once a day: clean up uploads that were never sent, and API logs older than a week
 CRON_LINE="30 3 * * * cd $BACKEND_DIR && .venv/bin/python manage.py cleanup_uploads >> /tmp/cleanup_uploads.log 2>&1"
