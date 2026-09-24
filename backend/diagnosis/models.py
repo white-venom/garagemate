@@ -28,6 +28,11 @@ class Diagnosis(models.Model):
     estimated_cost_min = models.PositiveIntegerField(null=True, blank=True)
     estimated_cost_max = models.PositiveIntegerField(null=True, blank=True)
     source = models.CharField(max_length=10, choices=Source.choices, default=Source.RULES)
+    # web research for this problem (news, recalls, known issues):
+    # {"summary", "sources": [{"title", "url"}], "queries", "searched_at"}
+    research = models.JSONField(default=dict, blank=True)
+    # translated card text when the conversation isn't in English: {"language", "title", "summary", ...}
+    localized = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

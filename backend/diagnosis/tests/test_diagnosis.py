@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
@@ -94,6 +95,44 @@ class BuildDiagnosisTests(TestCase):
         )
         diagnosis = build_diagnosis(conversation, gemini=fake)
         self.assertEqual(diagnosis.severity, "high")
+
+    def test_known_car_gets_researched_once(self):
+        cache.clear()
+        conversation = self.make_conversation("brakes", "brakes squeal, pads never changed")
+        conversation.vehicle_make, conversation.vehicle_model = "Maruti Suzuki", "Swift"
+        conversation.save()
+        sources = [{"title": "Swift recall", "url": "https://example.com/recall"}]
+        fake = FakeGemini(text="- No brake recalls for the Swift in India.", sources=sources)
+
+        diagnosis = build_diagnosis(conversation, gemini=fake)
+        self.assertEqual(diagnosis.research["sources"], sources)
+        self.assertIn("recalls", diagnosis.research["summary"])
+
+        # same problem on the same car is served from the cache
+        build_diagnosis(conversation, gemini=fake)
+        self.assertEqual(fake.calls, 1)
+
+    @override_settings(RESEARCH_ENABLED=False)
+    def test_research_can_be_switched_off(self):
+        conversation = self.make_conversation("brakes", "brakes squeal, pads never changed")
+        conversation.vehicle_model = "Swift"
+        conversation.save()
+        fake = FakeGemini(text="anything")
+        diagnosis = build_diagnosis(conversation, gemini=fake)
+        self.assertEqual(diagnosis.research, {})
+        self.assertEqual(fake.calls, 0)
+
+    def test_causes_that_dont_fit_the_fuel_are_left_out(self):
+        conversation = self.make_conversation("starting", "won't start in the morning, cranks normally, cold")
+        conversation.fuel_type = "cng"
+        conversation.save()
+        names = [cause["name"] for cause in build_diagnosis(conversation).probable_causes]
+        self.assertFalse(any("Glow plugs" in name for name in names))
+
+        conversation.fuel_type = "diesel"
+        conversation.save()
+        ranked = rank_causes(ISSUE_TYPES_BY_KEY["starting"], "cranks normally cold morning diesel", "diesel")
+        self.assertIn("Glow plugs (diesel cold start)", [cause.name for cause in ranked])
 
     def test_broken_ai_response_falls_back_to_rules(self):
         conversation = self.make_conversation("engine", "engine feels a bit off")

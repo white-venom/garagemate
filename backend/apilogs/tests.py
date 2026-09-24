@@ -72,7 +72,9 @@ class RequestLoggingTests(TestCase):
         self.assertEqual(body["reason"], "not_configured")
 
 
-@override_settings(GEMINI_API_KEY="server-test-key", GEMINI_MODEL="model-a", GEMINI_FALLBACK_MODEL="model-b")
+@override_settings(
+    GEMINI_API_KEY="server-test-key", GEMINI_MODEL="model-a", GEMINI_FALLBACK_MODEL="model-b", RESEARCH_ENABLED=False
+)
 class GeminiFailureTests(TestCase):
     def setUp(self):
         cache.clear()  # answers to open questions are cached

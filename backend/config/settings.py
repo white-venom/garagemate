@@ -193,6 +193,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25"))
+# web research (Google Search grounding). On the free tier only gemini-2.5-flash had grounding quota,
+# the lite and "latest" models answered 404 / 429, so they're not worth trying as a fallback.
+GEMINI_RESEARCH_MODELS = env_list("GEMINI_RESEARCH_MODELS", "gemini-2.5-flash")
+RESEARCH_TIMEOUT_SECONDS = int(os.getenv("RESEARCH_TIMEOUT_SECONDS", "15"))
+# model specific searches start in a thread while the customer answers the questions (off in tests)
+RESEARCH_IN_BACKGROUND = env_bool("RESEARCH_IN_BACKGROUND", default=not RUNNING_TESTS)
+RESEARCH_ENABLED = env_bool("RESEARCH_ENABLED", default=True)
+# how long researched news / recalls are reused for the same car + problem
+RESEARCH_CACHE_HOURS = int(os.getenv("RESEARCH_CACHE_HOURS", "24"))
 
 
 if not DEBUG:

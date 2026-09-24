@@ -71,6 +71,8 @@ class GeminiClient:
             models = [settings.GEMINI_MODEL, settings.GEMINI_FALLBACK_MODEL]
         # dedupe but keep order
         self.models = list(dict.fromkeys(m for m in models if m))
+        # web search (grounding) isn't available on every model on the free tier
+        self.research_models = list(dict.fromkeys(m for m in settings.GEMINI_RESEARCH_MODELS if m))
         # reason of the last call that failed on every model, None if all went fine
         self.last_failure = None
         self._client = None
@@ -96,6 +98,39 @@ class GeminiClient:
         )
         return parse_json(raw)
 
+    def research(self, prompt, *, system=None, purpose="web research", max_tokens=2048):
+        """
+        Answer with Google Search grounding. Returns {"text", "sources": [{"title", "url"}], "queries"}.
+        Raises GeminiError like the other calls.
+        """
+        response = self._generate(
+            prompt,
+            system=system,
+            media=None,
+            temperature=0.3,
+            max_tokens=max_tokens,
+            purpose=purpose,
+            models=self.research_models,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            raw_response=True,
+            # with thinking on, 2.5-flash took 9-30s per search, without it 5-6s. The search does the heavy lifting.
+            thinking_budget=0,
+            # if it still hangs, the chat moves on without it
+            timeout=settings.RESEARCH_TIMEOUT_SECONDS,
+        )
+        metadata = response.candidates[0].grounding_metadata if response.candidates else None
+        sources, seen = [], set()
+        for chunk in (metadata.grounding_chunks or []) if metadata else []:
+            web = getattr(chunk, "web", None)
+            if web and web.uri and web.uri not in seen and (web.title or "").lower() not in SOCIAL_SITES:
+                seen.add(web.uri)
+                sources.append({"title": web.title or "source", "url": web.uri})
+        return {
+            "text": (response.text or "").strip(),
+            "sources": sources[:6],
+            "queries": list(metadata.web_search_queries or []) if metadata else [],
+        }
+
     def _get_client(self):
         if self._client is None:
             self._client = genai.Client(
@@ -120,8 +155,12 @@ class GeminiClient:
             }
         )
 
-    def _generate(self, prompt, *, system, media, temperature, max_tokens, schema=None, purpose="text"):
-        if not self.enabled:
+    def _generate(
+        self, prompt, *, system, media, temperature, max_tokens, schema=None, purpose="text", models=None, tools=None,
+        raw_response=False, timeout=None, thinking_budget=None,
+    ):
+        models = models or self.models
+        if not self.api_key or not models:
             raise GeminiError("Gemini API key is not configured", reason="not_configured")
 
         contents = [types.Part.from_bytes(data=item.data, mime_type=item.mime_type) for item in media or []]
@@ -133,12 +172,15 @@ class GeminiClient:
             max_output_tokens=max_tokens,
             response_mime_type="application/json" if schema else None,
             response_json_schema=schema,
-            # we never pass tools, no need for the SDK's function calling loop
+            tools=tools,
+            # only built-in tools (google search) are used, no need for the SDK's function calling loop
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            http_options=types.HttpOptions(timeout=timeout * 1000) if timeout else None,
+            thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget is not None else None,
         )
 
         last_error, last_reason = None, "error"
-        for model in self.models:
+        for model in models:
             started = time.monotonic()
             try:
                 response = self._get_client().models.generate_content(model=model, contents=contents, config=config)
@@ -158,13 +200,17 @@ class GeminiClient:
             text = (response.text or "").strip()
             if text:
                 self._record(purpose, model, started)
-                return text
+                return response if raw_response else text
             # empty text usually means the answer got blocked by safety filters
             last_error, last_reason = GeminiError(f"{model} returned an empty response"), "empty"
             self._record(purpose, model, started, last_reason, "empty response")
 
         self.last_failure = last_reason
         raise GeminiError(str(last_error) if last_error else "Gemini request failed", reason=last_reason)
+
+
+# search results from these are posts by random people, not something to show as a source
+SOCIAL_SITES = {"facebook.com", "instagram.com", "x.com", "twitter.com", "threads.net", "quora.com"}
 
 
 def parse_json(raw):

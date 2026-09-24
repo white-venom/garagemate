@@ -17,7 +17,7 @@ class DiagnosisSerializer(serializers.ModelSerializer):
         fields = [
             "id", "conversation_id", "category", "category_label", "title", "summary", "probable_causes",
             "severity", "severity_label", "safe_to_drive", "advice", "recommended_service",
-            "estimated_cost_min", "estimated_cost_max", "source", "created_at",
+            "estimated_cost_min", "estimated_cost_max", "source", "research", "localized", "created_at",
         ]
 
     def get_category_label(self, diagnosis):

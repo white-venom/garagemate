@@ -27,6 +27,7 @@ from .knowledge_base import (
     severity_rank,
 )
 from .models import Diagnosis
+from .research import research_problem
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,13 @@ def collect_evidence(conversation):
     return "\n".join(part for part in parts if part)
 
 
-def rank_causes(issue, evidence):
+def rank_causes(issue, evidence, fuel_type=""):
     normalized = normalize(evidence)
     ranked = []
     for cause in issue.causes:
+        if fuel_type and cause.fuels and fuel_type not in cause.fuels:
+            # no glow plugs on a CNG car, no spark plugs on a diesel
+            continue
         signal = keyword_score(normalized, cause.signals)
         ranked.append(RankedCause(cause.name, cause.prior + signal, signal, cause.severity))
     ranked.sort(key=lambda cause: cause.score, reverse=True)
@@ -196,14 +200,18 @@ def _ai_review(gemini, conversation, issue, ranked, evidence, rules_severity):
     }
 
 
-def build_diagnosis(conversation, gemini=None):
-    """Create and return a Diagnosis for the conversation's current issue."""
+def build_diagnosis(conversation, gemini=None, research=None):
+    """
+    Create and return a Diagnosis for the conversation's current issue.
+    `research` is web research already done during the questions (mileage), otherwise
+    it's looked up here when we know the car model (recalls / known issues).
+    """
     issue = ISSUE_TYPES_BY_KEY.get(conversation.issue_category)
     if issue is None:
         raise ValueError("Conversation doesn't have an issue category yet")
 
     evidence = collect_evidence(conversation)
-    ranked = rank_causes(issue, evidence)
+    ranked = rank_causes(issue, evidence, conversation.fuel_type)
     severity = assess_severity(issue, ranked[0], normalize(evidence))
 
     result = {
@@ -224,6 +232,11 @@ def build_diagnosis(conversation, gemini=None):
         except GeminiError as exc:
             logger.warning("AI review failed, using rule based diagnosis: %s", exc)
 
+    if research is None and not issue.research_early and conversation.vehicle_model:
+        found = research_problem(issue, conversation, gemini, evidence)
+        if found:
+            research = {key: found[key] for key in ("summary", "sources", "queries", "searched_at")}
+
     service = Service.objects.filter(code=issue.service_code, is_active=True).first()
     return Diagnosis.objects.create(
         conversation=conversation,
@@ -233,6 +246,7 @@ def build_diagnosis(conversation, gemini=None):
         estimated_cost_max=service.price_max if service else None,
         safe_to_drive=result["severity"] in (LOW, MEDIUM),
         source=source,
+        research=research or {},
         **result,
     )
 
