@@ -63,9 +63,10 @@ AMBIGUOUS_MODELS = {
     "aspire", "freestyle", "elevate", "amaze", "exter",
 }
 
+# checked in this order: a "petrol + cng" car is a CNG car as far as mileage and servicing go
 FUEL_TYPES = {
-    "petrol": "petrol", "diesel": "diesel", "cng": "cng", "lpg": "lpg", "electric": "electric", "ev": "electric",
-    "hybrid": "hybrid",
+    "cng": "cng", "lpg": "lpg", "hybrid": "hybrid", "petrol": "petrol", "diesel": "diesel", "electric": "electric",
+    "ev": "electric",
 }
 
 # a 4 digit number that isn't followed by a unit ("2000 km" is not a year)
@@ -75,6 +76,8 @@ ODOMETER_RE = re.compile(
     r"(\d+(?:[.,]\d+)*)\s*(k|thousand|lakh|lakhs|lac|lacs)?\s*(km|kms|kilometers?|kilometres?|miles?)\b",
     re.IGNORECASE,
 )
+# when they're answering "which car is it?": "80k", "1.2 lakh", "45000" without the km
+LOOSE_ODOMETER_RE = re.compile(r"\b(\d+(?:[.,]\d+)*)\s*(k|thousand|lakh|lakhs|lac|lacs)?\b", re.IGNORECASE)
 
 
 def _build_model_lookup():
@@ -103,22 +106,34 @@ def _find_make(text):
     return None
 
 
-def _find_model(text, make=None):
+def _find_model(text, make=None, allow_ambiguous=False):
     for key, (model_make, display_name) in MODEL_LOOKUP.items():
         if make and model_make != make:
             continue
-        if not make and key in AMBIGUOUS_MODELS:
+        if not make and key in AMBIGUOUS_MODELS and not allow_ambiguous:
             continue
         if _contains(text, key):
             return model_make, display_name
     return None, None
 
 
-def _parse_odometer(raw_text):
+def _loose_odometer(raw_text):
+    for match in LOOSE_ODOMETER_RE.finditer(YEAR_RE.sub(" ", raw_text)):
+        number, multiplier = match.groups()
+        # a bare small number is more likely a model ("800") than the km
+        if multiplier or float(number.replace(",", "")) >= 1000:
+            return number, multiplier, ""
+    return None
+
+
+def _parse_odometer(raw_text, loose=False):
     match = ODOMETER_RE.search(raw_text)
-    if not match:
+    if match:
+        number, multiplier, unit = match.groups()
+    elif loose and _loose_odometer(raw_text):
+        number, multiplier, unit = _loose_odometer(raw_text)
+    else:
         return None
-    number, multiplier, unit = match.groups()
     number = number.replace(",", "")
     try:
         value = float(number)
@@ -137,14 +152,40 @@ def _parse_odometer(raw_text):
     return value if 0 < value < 2_000_000 else None
 
 
-def extract_vehicle_details(raw_text):
-    """Returns whatever we could find: make, model, year, odometer_km, fuel_type."""
+# Indian number plates: MH12AB1234, UP 37 U 2004, DL-3C-AB-1234. Only real state codes,
+# so "ac 12 2019" doesn't turn into a registration.
+STATE_CODES = {
+    "an", "ap", "ar", "as", "br", "ch", "cg", "dd", "dl", "dn", "ga", "gj", "hp", "hr", "jh", "jk", "ka", "kl", "la",
+    "ld", "mh", "ml", "mn", "mp", "mz", "nl", "od", "or", "pb", "py", "rj", "sk", "tn", "tr", "ts", "uk", "ua", "up", "wb",
+}
+PLATE_RE = re.compile(r"\b([a-z]{2})[\s-]?(\d{1,2})[\s-]?((?:[a-z]{1,3}[\s-]?){0,2})(\d{4})\b", re.IGNORECASE)
+
+
+def find_registration(raw_text):
+    for match in PLATE_RE.finditer(raw_text or ""):
+        state, district, series, number = match.groups()
+        if state.lower() in STATE_CODES:
+            return re.sub(r"[\s-]", "", f"{state}{district}{series}{number}").upper()
+    return None
+
+
+def tidy_car_names(make, model):
+    """ "tata", "tiago" -> "Tata", "Tiago" for cars we know, anything else stays as typed."""
+    details = extract_vehicle_details(f"{make} {model}", answering=True)
+    return details.get("make") or make.strip(), details.get("model") or model.strip()
+
+
+def extract_vehicle_details(raw_text, answering=False):
+    """
+    Returns whatever we could find: make, model, year, odometer_km, fuel_type, registration_number.
+    answering: the text is the answer to "which car is it?", so "city" is a Honda City and "80k" is the km.
+    """
     raw_text = raw_text or ""
     text = normalize(raw_text)
     details = {}
 
     make = _find_make(text)
-    model_make, model = _find_model(text, make)
+    model_make, model = _find_model(text, make, allow_ambiguous=answering)
     make = make or model_make
     if make:
         details["make"] = MAKES[make][0]
@@ -155,7 +196,7 @@ def extract_vehicle_details(raw_text):
     if year_match and int(year_match.group(1)) <= date.today().year + 1:
         details["year"] = int(year_match.group(1))
 
-    odometer = _parse_odometer(raw_text)
+    odometer = _parse_odometer(raw_text, loose=answering)
     if odometer:
         details["odometer_km"] = odometer
 
@@ -163,6 +204,10 @@ def extract_vehicle_details(raw_text):
         if _contains(text, word):
             details["fuel_type"] = fuel
             break
+
+    registration = find_registration(raw_text)
+    if registration:
+        details["registration_number"] = registration
 
     return details
 

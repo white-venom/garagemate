@@ -63,4 +63,48 @@ SOMETHING_WENT_WRONG = (
     "Sorry, something went wrong on my side while working on that. Could you send it again?"
 )
 
+NONE_OF_THESE = (
+    "No problem, you don't have to pick one of those. Tell me in your own words what's happening with the car: "
+    "what you notice, when it happens and since when. You can also send a photo or record the sound."
+)
+
+LANGUAGE_SWITCHED = "Sure, I'll reply in {language} from now on."
+
+LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "hinglish": "Hinglish"}
+
+NOTED_NONE = "No problem, let's move on."
+
+GOT_IT = "Got it, I've added that to your case."
+
+CAR_NOTED = "Thanks, I've noted the car."
+
+UPDATED_DIAGNOSIS = "Thanks, that helps. Here's the updated picture:"
+
+NOTED = "Okay, noted. Anything else you'd like to know about it, or shall I book the mechanic?"
+
+ADDED_FOR_MECHANIC = "Thanks, I've added that to your case so the mechanic knows before the visit."
+
+ENGLISH_ONLY = "Sorry, I can only reply in English at the moment."
+
+RESEARCH_INTRO = "Before the next questions, here's what's worth knowing about {fuel} right now:"
+
+RESEARCH_OUTRO = "Now a few questions to check the car itself."
+
+# used when the web research isn't available (no API key / quota), general facts only
+FUEL_NOTES = {
+    "petrol": (
+        "Worth knowing: most pumps in India now sell E20 petrol (20% ethanol). The official estimate is a 2-6% "
+        "drop in mileage, a bit more on older cars that weren't designed for E20. A bigger drop than that usually "
+        "points to something on the car, so let's check."
+    ),
+    "cng": (
+        "Worth knowing: CNG mileage depends a lot on the kit being tuned right and on the gas pressure at the "
+        "station. A sudden drop after a refill or a kit service is a good clue."
+    ),
+    "diesel": (
+        "Worth knowing: a diesel's mileage drops mostly from clogged air or fuel filters, dirty injectors and "
+        "under-inflated tyres. Fuel quality issues are rarer but do happen at some pumps."
+    ),
+}
+
 KIND_NAMES = {"image": "photo", "audio": "recording", "video": "video"}

@@ -30,6 +30,7 @@ def _save_reply(conversation, reply):
         diagnosis=reply.diagnosis,
         used_ai=reply.used_ai,
         ai_error=reply.ai_error,
+        sources=reply.sources,
     )
 
 
@@ -84,7 +85,14 @@ def record_booking(conversation, booking):
         booking=booking,
     )
     conversation.stage = Conversation.Stage.BOOKED
-    conversation.save(update_fields=["stage", "updated_at"])
+    # the booking form has the full car details, fill in whatever the chat didn't get
+    conversation.registration_number = booking.registration_number or conversation.registration_number
+    conversation.vehicle_make = conversation.vehicle_make or booking.vehicle_make
+    conversation.vehicle_model = conversation.vehicle_model or booking.vehicle_model
+    conversation.vehicle_year = conversation.vehicle_year or booking.vehicle_year
+    conversation.save(
+        update_fields=["stage", "registration_number", "vehicle_make", "vehicle_model", "vehicle_year", "updated_at"]
+    )
     return message
 
 

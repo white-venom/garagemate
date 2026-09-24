@@ -11,10 +11,12 @@ CLIENT_ID = "test-client-0001"
 
 class FakeGemini:
     enabled = True
+    last_failure = None
 
-    def __init__(self, text="", data=None):
+    def __init__(self, text="", data=None, sources=None):
         self.text = text
         self.data = data or {}
+        self.sources = sources or []
         self.calls = 0
 
     def generate_text(self, *args, **kwargs):
@@ -24,6 +26,10 @@ class FakeGemini:
     def generate_json(self, *args, **kwargs):
         self.calls += 1
         return self.data
+
+    def research(self, *args, **kwargs):
+        self.calls += 1
+        return {"text": self.text, "sources": self.sources, "queries": []}
 
 
 @override_settings(GEMINI_API_KEY="")
@@ -67,12 +73,20 @@ class ChatApiTests(TestCase):
         self.assertEqual(first["reply"]["kind"], "question")
         self.assertEqual(first["conversation"]["issue_category"], "brakes")
 
+        # answer whatever gets asked, the order of questions can change as the knowledge base grows
+        answers = {
+            "Which car": "2016 Honda City, 70000 km",
+            "pedal": "Feels normal",
+            "pull to one side": "Neither",
+            "brake pads last changed": "More than 2 years ago / never",
+            "first notice": "In the last few days",
+        }
         reply = first["reply"]
-        answers = iter(["Feels normal", "2016 Honda City, 70000 km", "Neither"])
-        for _ in range(5):
+        for _ in range(8):
             if reply["kind"] != "question":
                 break
-            reply = self.send(next(answers), conversation_id).json()["reply"]
+            answer = next((text for hint, text in answers.items() if hint in reply["content"]), reply["quick_replies"][-1])
+            reply = self.send(answer, conversation_id).json()["reply"]
 
         self.assertEqual(reply["kind"], "diagnosis")
         diagnosis = reply["diagnosis"]

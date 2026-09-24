@@ -31,7 +31,7 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             "id", "role", "kind", "content", "quick_replies", "action", "attachments", "diagnosis", "booking",
-            "used_ai", "ai_error", "created_at",
+            "used_ai", "ai_error", "sources", "created_at",
         ]
 
 
@@ -41,6 +41,7 @@ class VehicleSerializer(serializers.Serializer):
     year = serializers.IntegerField(source="vehicle_year", allow_null=True)
     odometer_km = serializers.IntegerField(allow_null=True)
     fuel_type = serializers.CharField()
+    registration_number = serializers.CharField()
 
 
 class ConversationSerializer(serializers.ModelSerializer):
@@ -51,8 +52,8 @@ class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = [
-            "id", "title", "stage", "issue_category", "vehicle", "car_id", "latest_diagnosis", "last_message",
-            "created_at", "updated_at",
+            "id", "title", "stage", "issue_category", "language", "vehicle", "car_id", "latest_diagnosis",
+            "last_message", "created_at", "updated_at",
         ]
 
     def get_latest_diagnosis(self, conversation):
@@ -64,6 +65,12 @@ class ConversationSerializer(serializers.ModelSerializer):
         return {"id": diagnosis.id, "title": diagnosis.title, "severity": diagnosis.severity}
 
 
+class ConversationUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conversation
+        fields = ["language"]
+
+
 class ConversationDetailSerializer(ConversationSerializer):
     messages = MessageSerializer(many=True, read_only=True)
 
@@ -73,6 +80,8 @@ class ConversationDetailSerializer(ConversationSerializer):
 
 class ChatRequestSerializer(serializers.Serializer):
     conversation_id = serializers.UUIDField(required=False, allow_null=True)
+    # reply language for this conversation, the header language picker sends it
+    language = serializers.ChoiceField(choices=Conversation.Language.choices, required=False)
     message = serializers.CharField(max_length=2000, required=False, allow_blank=True, default="")
     attachment_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE

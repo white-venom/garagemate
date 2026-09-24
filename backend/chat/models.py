@@ -12,18 +12,26 @@ class Conversation(models.Model):
         DIAGNOSED = "diagnosed", "Diagnosed"
         BOOKED = "booked", "Mechanic booked"
 
+    class Language(models.TextChoices):
+        ENGLISH = "en", "English"
+        HINDI = "hi", "Hindi"
+        HINGLISH = "hinglish", "Hinglish"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # there are no user accounts, the browser generates a random id and keeps it in localStorage
     client_id = models.CharField(max_length=64, db_index=True)
     title = models.CharField(max_length=120, blank=True)
     stage = models.CharField(max_length=12, choices=Stage.choices, default=Stage.NEW)
     issue_category = models.CharField(max_length=40, blank=True)
+    # replies are translated to this (the logic itself always works in English)
+    language = models.CharField(max_length=10, choices=Language.choices, default=Language.ENGLISH)
 
     vehicle_make = models.CharField(max_length=40, blank=True)
     vehicle_model = models.CharField(max_length=60, blank=True)
     vehicle_year = models.PositiveSmallIntegerField(null=True, blank=True)
     odometer_km = models.PositiveIntegerField(null=True, blank=True)
     fuel_type = models.CharField(max_length=12, blank=True)
+    registration_number = models.CharField(max_length=15, blank=True)
     # set when the customer confirmed it's one of the cars saved in their profile
     car = models.ForeignKey(
         "customers.Car", on_delete=models.SET_NULL, null=True, blank=True, related_name="conversations"
@@ -77,6 +85,8 @@ class Message(models.Model):
         "bookings.Booking", on_delete=models.SET_NULL, null=True, blank=True, related_name="messages"
     )
     used_ai = models.BooleanField(default=False)
+    # web pages a researched answer is based on: [{"title", "url"}]
+    sources = models.JSONField(default=list, blank=True)
     # set when Gemini was needed but failed (quota, overloaded...) and the rules answered instead
     ai_error = models.CharField(max_length=30, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

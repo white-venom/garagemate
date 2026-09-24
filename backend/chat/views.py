@@ -14,6 +14,7 @@ from .serializers import (
     ChatRequestSerializer,
     ConversationDetailSerializer,
     ConversationSerializer,
+    ConversationUpdateSerializer,
     MessageSerializer,
 )
 from .services import conversation_with_messages, conversations_for_client, handle_user_message
@@ -34,6 +35,9 @@ class ChatView(APIView):
         data = serializer.validated_data
 
         conversation = data["conversation"] or Conversation.objects.create(client_id=client_id)
+        if data.get("language") and data["language"] != conversation.language:
+            conversation.language = data["language"]
+            conversation.save(update_fields=["language", "updated_at"])
         user_message, reply = handle_user_message(conversation, data["message"], data["attachments"])
         # same field the history list gets from its annotation
         conversation.last_message = reply.content
@@ -96,13 +100,22 @@ class ConversationListView(APIView):
 
 
 class ConversationDetailView(APIView):
-    """GET / DELETE /api/conversations/{id}/"""
+    """GET / PATCH (language) / DELETE /api/conversations/{id}/"""
 
     def get(self, request, pk):
         conversation = conversation_with_messages(get_client_id(request), pk)
         if conversation is None:
             raise NotFound("Conversation not found.")
         return Response(ConversationDetailSerializer(conversation, context={"request": request}).data)
+
+    def patch(self, request, pk):
+        conversation = Conversation.objects.filter(pk=pk, client_id=get_client_id(request)).first()
+        if conversation is None:
+            raise NotFound("Conversation not found.")
+        serializer = ConversationUpdateSerializer(conversation, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ConversationSerializer(conversation).data)
 
     def delete(self, request, pk):
         deleted, _ = Conversation.objects.filter(pk=pk, client_id=get_client_id(request)).delete()
