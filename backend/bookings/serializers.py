@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 
+from chat.bot.vehicle import tidy_car_names
 from chat.models import Conversation
 from diagnosis.models import Diagnosis
 
@@ -123,7 +124,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         value = value.strip().upper()
         if value and not REGISTRATION_RE.match(value):
             raise serializers.ValidationError("That doesn't look like a registration number (e.g. MH12AB1234).")
-        return value
+        # stored without spaces, the frontend shows it as "MH 12 AB 1234"
+        return re.sub(r"[\s-]", "", value)
 
     def validate_scheduled_date(self, value):
         today = timezone.localdate()
@@ -136,6 +138,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        attrs["vehicle_make"], attrs["vehicle_model"] = tidy_car_names(attrs["vehicle_make"], attrs["vehicle_model"])
         if slot_has_passed(attrs["scheduled_date"], attrs["time_slot"]):
             raise serializers.ValidationError({"time_slot": "That slot has already started or is too soon. Pick a later one."})
 

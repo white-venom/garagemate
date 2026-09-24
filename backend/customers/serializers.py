@@ -3,6 +3,8 @@ import re
 from django.utils import timezone
 from rest_framework import serializers
 
+from chat.bot.vehicle import tidy_car_names
+
 from .models import MAX_CARS, Car, Customer
 
 PHONE_RE = re.compile(r"^\+?\d{10,13}$")
@@ -20,7 +22,7 @@ def clean_registration(value):
     value = (value or "").strip().upper()
     if value and not REGISTRATION_RE.match(value):
         raise serializers.ValidationError("That doesn't look like a registration number (e.g. MH12AB1234).")
-    return value
+    return re.sub(r"[\s-]", "", value)
 
 
 class CarSerializer(serializers.ModelSerializer):
@@ -52,6 +54,10 @@ class CarSerializer(serializers.ModelSerializer):
         customer = self.context.get("customer")
         if self.instance is None and customer and customer.cars.count() >= MAX_CARS:
             raise serializers.ValidationError(f"You can save up to {MAX_CARS} cars.")
+        if "make" in attrs or "model" in attrs:
+            make = attrs.get("make", self.instance.make if self.instance else "")
+            model = attrs.get("model", self.instance.model if self.instance else "")
+            attrs["make"], attrs["model"] = tidy_car_names(make, model)
         return attrs
 
 

@@ -132,6 +132,21 @@ class BookingApiTests(TestCase):
         self.assertEqual(confirmation.kind, Message.Kind.BOOKING_CONFIRMED)
         self.assertIn(response.json()["reference"], confirmation.content)
 
+    def test_booking_fills_in_the_car_and_plate_on_the_conversation(self):
+        chat = self.client.post("/api/chat/", {"message": "brakes are squealing"}, format="json").json()
+        conversation_id = chat["conversation"]["id"]
+        response = self.book(
+            conversation_id=conversation_id, vehicle_make="tata", vehicle_model="tiago", registration_number="up 37 u 2004",
+            save_details=True,
+        )
+        self.assertEqual(response.status_code, 201)
+
+        vehicle = self.client.get(f"/api/conversations/{conversation_id}/").json()["vehicle"]
+        self.assertEqual((vehicle["make"], vehicle["model"]), ("Tata", "Tiago"))
+        self.assertEqual(vehicle["registration_number"], "UP37U2004")
+        conversation = Conversation.objects.get(pk=conversation_id)
+        self.assertEqual(conversation.car.registration_number, "UP37U2004")
+
     def test_cannot_book_on_someone_elses_conversation(self):
         conversation = Conversation.objects.create(client_id="not-me-at-all")
         response = self.book(conversation_id=str(conversation.pk))

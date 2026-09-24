@@ -51,7 +51,10 @@ def find_mentioned_car(cars, text):
 
 
 def remember_booking_details(client_id, booking):
-    """Save the name / phone / car from a booking to the profile ("save my details" was ticked)."""
+    """
+    Save the name / phone / car from a booking to the profile ("save my details" was ticked).
+    Returns the saved car (None if the garage is already full).
+    """
     customer, _ = Customer.objects.get_or_create(client_id=client_id)
     customer.name = booking.customer_name
     customer.phone = booking.phone
@@ -73,12 +76,13 @@ def remember_booking_details(client_id, booking):
         same.year = booking.vehicle_year or same.year
         same.registration_number = booking.registration_number or same.registration_number
         same.save(update_fields=["year", "registration_number"])
-    elif len(cars) < MAX_CARS:
-        add_car(
+        return same
+    if len(cars) < MAX_CARS:
+        return add_car(
             customer,
             make=booking.vehicle_make,
             model=booking.vehicle_model,
             year=booking.vehicle_year,
             registration_number=booking.registration_number,
         )
-    return customer
+    return None

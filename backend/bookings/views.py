@@ -48,7 +48,10 @@ class BookingCreateView(APIView):
         if booking.conversation:
             record_booking(booking.conversation, booking)
         if save_details:
-            remember_booking_details(client_id, booking)
+            car = remember_booking_details(client_id, booking)
+            if car and booking.conversation and not booking.conversation.car_id:
+                booking.conversation.car = car
+                booking.conversation.save(update_fields=["car"])
 
         # the person who just booked can see their own full phone number
         data = BookingSerializer(booking, context={"mask_phone": False}).data
