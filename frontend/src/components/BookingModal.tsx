@@ -263,7 +263,7 @@ function BookingForm({ onClose, conversation, diagnosis, profile, onBooked }: Om
   }
 
   return (
-    <form onSubmit={submit} noValidate className="flex max-h-full flex-col">
+    <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-start justify-between bg-ink-900 px-5 py-5 text-white">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-400">Book a mechanic</p>
@@ -277,7 +277,7 @@ function BookingForm({ onClose, conversation, diagnosis, profile, onBooked }: Om
         </button>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5">
         <Field label="Service" error={errors.service}>
           <select value={form.service} onChange={(event) => setField("service", event.target.value)} className={inputClass}>
             {services.length === 0 && <option value={form.service}>Loading services...</option>}
