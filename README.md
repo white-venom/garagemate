@@ -137,8 +137,10 @@ cd frontend && npm run lint && npm run build
    from your IP, encrypted gp3 disk, Elastic IP):
 
    ```bash
-   aws ec2 create-key-pair --key-name garagemate-key --key-type ed25519      --query KeyMaterial --output text > ~/.ssh/garagemate-key.pem
-   aws cloudformation deploy --stack-name garagemate-api --template-file backend/deploy/ec2-stack.yaml      --parameter-overrides KeyName=garagemate-key SshCidr=<your ip>/32
+   aws ec2 create-key-pair --key-name garagemate-key --key-type ed25519 \
+     --query KeyMaterial --output text > ~/.ssh/garagemate-key.pem
+   aws cloudformation deploy --stack-name garagemate-api --template-file backend/deploy/ec2-stack.yaml \
+     --parameter-overrides KeyName=garagemate-key SshCidr=<your ip>/32
    aws cloudformation describe-stacks --stack-name garagemate-api --query "Stacks[0].Outputs"
    ```
 

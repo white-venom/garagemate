@@ -163,7 +163,7 @@ Allowed types (checked from the file content, not the extension):
 | video | MP4, WEBM, MOV, 3GP | 15 MB |
 
 ```bash
-curl -X POST https://YOUR-API-DOMAIN/api/upload/ \
+curl -X POST https://13-127-38-145.sslip.io/api/upload/ \
   -H "X-Client-Id: 3f6c1a2e-8d4b-4f7a-9c1e-2b5d7e9f0a13" \
   -F "file=@dashboard.jpg"
 ```
@@ -177,7 +177,7 @@ curl -X POST https://YOUR-API-DOMAIN/api/upload/ \
   "mime_type": "image/png",
   "size_bytes": 184233,
   "original_name": "dashboard.png",
-  "url": "https://YOUR-API-DOMAIN/media/uploads/2026/09/5189a03c3acc4759a02edef598bf4d03.png",
+  "url": "https://13-127-38-145.sslip.io/media/uploads/2026/09/5189a03c3acc4759a02edef598bf4d03.png",
   "created_at": "2026-09-23T12:56:40.434665+05:30"
 }
 ```
