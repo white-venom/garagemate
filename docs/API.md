@@ -66,6 +66,7 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
 | `conversation_id` | uuid | optional, continue an existing conversation |
 | `message` | string | up to 2000 chars. Can be empty if attachments are sent |
 | `attachment_ids` | uuid[] | optional, ids from `/api/upload/`, max 4. Each upload can only be sent once |
+| `language` | string | optional, `en`, `hi` or `hinglish`: the language the bot replies in. Used when starting a conversation, later use `PATCH /api/conversations/{id}/` |
 
 ```json
 {
@@ -82,7 +83,8 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
     "title": "Brakes",
     "stage": "gathering",
     "issue_category": "brakes",
-    "vehicle": { "make": "", "model": "", "year": null, "odometer_km": null, "fuel_type": "" },
+    "language": "en",
+    "vehicle": { "make": "", "model": "", "year": null, "odometer_km": null, "fuel_type": "", "registration_number": "" },
     "car_id": null,
     "latest_diagnosis": null,
     "last_message": "Brake problems are worth taking seriously, let's narrow it down...",
@@ -115,6 +117,7 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
     "booking": null,
     "used_ai": false,
     "ai_error": "",
+    "sources": [],
     "created_at": "2026-09-23T12:56:40.409066+05:30"
   }
 }
@@ -131,11 +134,21 @@ Send a message to the mechanic bot. Leave out `conversation_id` to start a new c
 - `used_ai`: `true` if Gemini was called to produce this reply
 - `ai_error`: set when Gemini was needed but failed and the rules answered instead. One of `quota`,
   `overloaded`, `timeout`, `invalid_key`, `model_not_found`, `empty`, `error`. Empty otherwise
+- `sources`: web pages a researched reply is based on, `[{"title": "economictimes.com", "url": "..."}]`.
+  Set on answers that used Google Search (fuel news during the mileage questions, time-sensitive
+  questions). Empty otherwise. See [AI_USAGE.md](AI_USAGE.md)
 
 **Conversation `stage`:** `new` -> `gathering` (asking follow-up questions) -> `diagnosed` -> `booked`
 
 **Conversation `car_id`:** id of the saved car (see Profile below) the conversation is about, once the
 customer confirmed it ("Is this about your 2017 Maruti Suzuki Swift?" -> "Yes, my Swift").
+
+**Conversation `language`:** `en`, `hi` (Hindi, Devanagari) or `hinglish`. The bot's replies and quick
+replies come in this language. It changes by itself when the customer writes in Hindi / Hinglish or asks
+for it in the chat ("hindi mein baat karo"). The customer can write in any of them either way.
+
+**`vehicle.registration_number`:** from the saved car, a booking, or typed in the chat ("MH12AB1234"),
+stored without spaces.
 
 **Errors:** 400 if both message and attachments are empty, or an attachment id is invalid / already used.
 404 if the conversation doesn't exist for this client.
@@ -233,6 +246,13 @@ returned with **200** instead of creating a new one.
     "estimated_cost_min": 1200,
     "estimated_cost_max": 6500,
     "source": "rules",
+    "research": {
+      "summary": "- No brake recalls for the 2017 Swift in India in the last year...",
+      "sources": [{ "title": "cardekho.com", "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/..." }],
+      "queries": ["Maruti Swift 2017 brake recall India"],
+      "searched_at": "2026-09-24T15:39:12.842110+05:30"
+    },
+    "localized": {},
     "created_at": "2026-09-23T12:56:40.506445+05:30"
   },
   "message": { "id": 7, "role": "assistant", "kind": "diagnosis", "...": "same shape as chat messages" }
@@ -242,6 +262,11 @@ returned with **200** instead of creating a new one.
 - `severity`: `low`, `medium`, `high`, `critical`
 - `source`: `rules` (rule engine only) or `ai` (rule engine + Gemini second opinion)
 - `probable_causes[].likelihood`: 0-1, rough share of the evidence, not a real probability
+- `research`: web research for this problem on this car (recalls, known issues, fuel news) with its
+  sources. `{}` when there was nothing to search (car model unknown, routine service), research is
+  switched off, or the search failed
+- `localized`: when the conversation isn't in English, a translated copy of the card text:
+  `{"language", "title", "summary", "advice", "causes": [...same order...], "research_summary"}`. `{}` otherwise
 
 **Errors:** 400 if there's nothing to diagnose yet (no problem described), 404 unknown conversation.
 
@@ -391,6 +416,17 @@ response, with `latest_diagnosis` (`id`, `title`, `severity`) and a `last_messag
 ### GET /api/conversations/{id}/
 
 The conversation plus all `messages` in order (same message shape as the chat response).
+
+### PATCH /api/conversations/{id}/
+
+Change the reply language of a conversation. Only `language` can be changed.
+
+```json
+{ "language": "hi" }
+```
+
+Returns the conversation (same object as in the chat response). 400 for anything other than `en`, `hi`,
+`hinglish`.
 
 ### DELETE /api/conversations/{id}/
 

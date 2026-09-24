@@ -13,6 +13,7 @@ Built for the Full-Stack Developer Intern task.
 | Health check | https://13-127-38-145.sslip.io/api/health/ |
 | API docs | [docs/API.md](docs/API.md) |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| How Gemini is used (incl. web research) | [docs/AI_USAGE.md](docs/AI_USAGE.md) |
 
 ## Features
 
@@ -20,8 +21,17 @@ Built for the Full-Stack Developer Intern task.
 - Chat by text, or attach photos, audio clips and videos. There's also a mic button to record the noise
   the car is making straight from the browser (converted to WAV in the browser before upload).
 - Only handles car related stuff. Off-topic questions get a polite "sorry, I can only help with cars".
-- Asks 2-4 follow-up questions (tap-to-answer quick replies) before diagnosing. Questions the user already
-  answered in their first message are skipped.
+- Asks follow-up questions (tap-to-answer quick replies, or answer in your own words) before diagnosing,
+  the way a mechanic would. Questions already answered earlier are skipped, and questions that only make
+  sense on one path are only asked there (a steady check engine light doesn't get "when is it worst?").
+- Understands the way people actually type: "avg has dropped", "not giving the mileage", typos,
+  "none of these", "my issue isn't listed", Hinglish and Hindi. Extra details or a side question in the
+  middle of the questions are handled instead of being saved as the answer.
+- Replies in **English, Hindi or Hinglish**. Pick it under the message box, or just write in Hindi / ask
+  "hindi mein baat karo". Buttons and the diagnosis card are translated too.
+- **Mileage problems start with the fuel**: once it knows petrol / diesel / CNG it searches current fuel news
+  (E20 ethanol petrol, adulteration) and shares what's relevant with sources, then asks about the car
+  itself (drop %, after a refuel?, driving, pickup, tyres, service).
 - Safety warnings straight away for things like fuel smell, smoke, brake failure or the oil pressure light.
 - Progress stepper in the header: Describe -> Questions -> Diagnosis -> Booking.
 
@@ -29,15 +39,20 @@ Built for the Full-Stack Developer Intern task.
 - Diagnosis card ("inspection report"): most likely cause, other possible causes with a likelihood, a
   severity gauge, whether it's safe to drive, the recommended service with a price range, and what to do
   until the car is checked.
+- **Worth knowing · from the web** on the card: recalls, service campaigns and known issues for that exact
+  model, found with Google Search while the customer answers the questions, with the sources linked.
+- More details after the diagnosis ("the pedal is also soft now") update it instead of starting over.
 - "Book a mechanic" from the diagnosis. Live slot availability, the least busy free mechanic is assigned
   automatically, and a mechanic can't be double booked (DB constraint). Booking status page with cancel.
 
 **Personalised ("My garage")**
 - Optional profile with the customer's name, phone and their cars (make, model, year, fuel, km, reg no).
+  It opens by itself on the first visit until it's filled in (or skipped).
 - The bot greets them by name. When they say "my car" it asks *"Is this about your 2017 Maruti Suzuki Swift?"*
   with one-tap answers instead of making them type the car again. Saying "my swift" picks the saved car
   directly.
 - The booking form is prefilled from the profile, and a "save my details" tick stores new details for next time.
+- The header shows the car as a number plate with its registration (UP 37 U 2004) once it's known.
 
 **Transparency for reviewers**
 - **API logs panel** (header button): every GET/POST this browser made, with status code and timing, plus
@@ -54,19 +69,25 @@ there's no reasonable way to do it with rules.
 
 | What | How |
 |---|---|
-| Is this about cars? greeting / thanks / yes / no | keyword and regex rules |
-| Working out the problem area (brakes, AC, battery...) | weighted keywords from a knowledge base |
-| Follow-up questions | knowledge base, one question at a time |
-| Car make / model / year / km from free text, matching saved cars | regex + list of Indian market models |
+| Is this about cars? greeting / thanks / yes / no / "none of these" | keyword and regex rules |
+| Working out the problem area (brakes, AC, battery, mileage...) | weighted keywords from a knowledge base |
+| Follow-up questions, which ones to skip or ask | knowledge base, one question at a time |
+| Free text answer -> the matching quick reply | word matching (negations and numbers must agree) |
+| Car make / model / year / km / reg no from free text, matching saved cars | regex + list of Indian market models |
 | Diagnosis | rule based scoring of possible causes |
+| Hindi / Hinglish, typos, replies the rules can't place | Gemini, with the open question as context |
+| Replying in Hindi / Hinglish | Gemini translation, cached forever per exact text |
+| Fuel news, recalls, known issues for the model | Gemini + Google Search, cached 24h per problem + car |
 | Diagnosis when the rules aren't confident, or photos/audio were sent | Gemini second opinion |
 | Looking at photos, listening to recordings, watching videos | Gemini |
-| Open questions like "which oil grade for a Creta?" | Gemini (answers cached for 24h) |
+| Open questions like "which oil grade for a Creta?" | Gemini (web search only for time-sensitive ones), cached 24h |
 | Emergency warnings, booking, slots, prices, profile | plain Django |
 
 Default model is `gemini-3.5-flash-lite` (1-2s answers on the free tier) with `gemini-2.5-flash` as the
-fallback when the first one is out of quota or overloaded. Both are configurable. Without a
-`GEMINI_API_KEY` the whole flow still works, the bot just can't look at media or answer open questions.
+fallback when the first one is out of quota or overloaded. Web search runs on `gemini-2.5-flash`, which has
+only 20 free requests a day, so it's rationed and cached. All configurable. Without a `GEMINI_API_KEY` the
+whole flow still works in English, the bot just can't look at media, search, translate or answer open questions.
+Every call, when it happens and what happens if it fails: [docs/AI_USAGE.md](docs/AI_USAGE.md).
 
 ## Tech stack
 
@@ -125,7 +146,7 @@ Open http://localhost:3000
 ### Tests
 
 ```bash
-cd backend && python manage.py test      # 80 tests, Gemini is mocked
+cd backend && python manage.py test      # 114 tests, Gemini is mocked
 cd frontend && npm run lint && npm run build
 ```
 
@@ -191,6 +212,9 @@ Backend (`backend/.env`, see `.env.example` for all of them):
 | `GEMINI_API_KEY` | optional, free key from Google AI Studio |
 | `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` | fallback is used if the first one hits its quota |
 | `GEMINI_TIMEOUT_SECONDS` | per call, default 25 |
+| `GEMINI_RESEARCH_MODELS` | models with Google Search grounding, default `gemini-2.5-flash` |
+| `RESEARCH_ENABLED` | `false` turns off all web search |
+| `RESEARCH_TIMEOUT_SECONDS` / `RESEARCH_CACHE_HOURS` | 15s per search, results reused for 24h |
 | `SQLITE_PATH`, `MEDIA_ROOT` | where the DB and uploads go |
 | `THROTTLE_*` | per-IP rate limits |
 
@@ -204,3 +228,4 @@ Frontend: `NEXT_PUBLIC_API_URL` only.
 - SMS / WhatsApp confirmation for bookings, and a small panel for mechanics to update job status.
 - Service history per saved car (last service date, km) so the bot can say "you're due for a service".
 - Tune the knowledge base weights with real workshop data instead of my own guesses.
+- Run the web research on a paid key or a model with more free searches, 20 a day runs out fast.

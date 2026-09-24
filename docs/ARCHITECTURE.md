@@ -17,8 +17,9 @@
    |-- customers/   "My garage" profile and saved cars
    |-- core/        Gemini wrapper, error handler, text helpers
    |
-   |-- SQLite (WAL mode), also used as the cache (throttling, cached Gemini answers)
-   '-- Gemini API (only for media, open questions, unsure diagnoses)
+   |-- SQLite (WAL mode), also used as the cache (throttling, cached Gemini answers, translations, research)
+   '-- Gemini API (media, messages the rules can't read, Hindi replies, web research, open questions,
+                   unsure diagnoses - see AI_USAGE.md)
 ```
 
 The frontend is a single chat page plus a booking status page. It talks to the API directly (CORS),
@@ -28,27 +29,40 @@ there's no Next.js API layer in between.
 
 `POST /api/chat/` -> `chat/services.handle_user_message()` -> `MechanicBot.reply()` (`chat/bot/engine.py`)
 
-1. Save the user's message and link any uploads to it.
-2. Work out the car: if the customer has saved cars and names one ("my swift"), use it. Otherwise pull
-   make / model / year / km out of the text with regex (`chat/bot/vehicle.py`).
-3. Check for emergencies (fuel smell, smoke, brake failure, oil light) and add a safety warning first.
-4. If photos/audio/video were attached, ask Gemini what it sees/hears. Results are stored on the
+1. Save the user's message and link any uploads to it. A tapped quick reply in Hindi / Hinglish is mapped
+   back to the original English option.
+2. If the message isn't plain English, or the chat is in Hindi / Hinglish, Gemini turns it into English
+   first (`chat/bot/understand.py`), so the rules below can work on it.
+3. Work out the car: if the customer has saved cars and names one ("my swift"), use it. Otherwise pull
+   make / model / year / km / registration out of the text with regex (`chat/bot/vehicle.py`).
+4. Check for emergencies (fuel smell, smoke, brake failure, oil light) and add a safety warning first.
+5. If photos/audio/video were attached, ask Gemini what it sees/hears. Results are stored on the
    attachment and reused if the same file (same sha256) is sent again.
-5. Route the message, all rule based:
-   - a follow-up question is pending -> store the answer, ask the next one or diagnose
-   - already diagnosed -> handle "yes, book", "no", "how much?", "is it safe to drive?"
+6. Route the message, rules first:
+   - "talk in hindi" (typos too) -> switch the reply language
+   - a follow-up question is pending -> work out what the reply is: a quick reply (matched from free text
+     by the rules), "none of these", car details, more detail about the problem, or a side question. Only
+     a reply the rules can't place goes to Gemini. Then ask the next question or diagnose
+   - already diagnosed -> "yes, book", "no", "how much?", "is it safe to drive?", or new details that
+     update the diagnosis
+   - "which coolant should I use?" -> answered, even though it mentions coolant
    - problem keywords found -> start that issue and ask its first question
    - vague ("weird noise") -> ask a clarifying question with options
    - greeting / thanks -> canned reply (with the customer's name if they have a profile)
-   - off-topic -> polite rejection
+   - anything the rules don't understand -> Gemini reads it before anything is rejected
    - car related question the rules can't answer -> Gemini
-6. Save the bot's reply. If Gemini was needed but failed, the reply carries `ai_error` so the UI can say
-   "the rule based checks answered this one". If anything else crashes, the customer still gets a
-   "sorry, try again" message instead of a 500.
+7. Translate the reply if the chat is in Hindi / Hinglish, then save it. If Gemini was needed but failed,
+   the reply carries `ai_error` so the UI can say "the rule based checks answered this one". If anything
+   else crashes, the customer still gets a "sorry, try again" message instead of a 500.
 
 Conversation stages: `new -> gathering -> diagnosed -> booked`. The follow-up progress (pending
-question, answers so far) is kept in `Conversation.state` (a JSON field), so the flow is stateless on
-the server between requests.
+question, answers so far, research done, translated button map) is kept in `Conversation.state` (a JSON
+field), so the flow is stateless on the server between requests.
+
+Which question comes next is decided per question in the knowledge base: `skip_if` (already answered in
+something they said), `only_if` (only makes sense on one path, e.g. "is the light steady or blinking?"
+only when a warning light was mentioned, "when is it worst?" only when the car drives badly) and
+`skip_when_known` (the fuel question is skipped when the saved car has a fuel type).
 
 ## Personalisation
 
@@ -65,13 +79,19 @@ the server between requests.
 
 ## Diagnosis
 
-`diagnosis/knowledge_base.py` has 12 issue types (brakes, starting & battery, engine, overheating,
-clutch & gearbox, suspension, tyres, AC, electrical, smoke, leaks, routine service). Each one has:
+`diagnosis/knowledge_base.py` has 13 issue types (brakes, starting & battery, engine, mileage & fuel
+economy, overheating, clutch & gearbox, suspension, tyres, AC, electrical, smoke, leaks, routine service).
+Each one has:
 
 - weighted keywords to detect it
-- 2-3 follow-up questions with quick reply options
-- possible causes, each with a prior and signal words that make it more likely
+- 2-7 follow-up questions with quick reply options
+- possible causes, each with a prior and signal words that make it more likely (and the fuels it can
+  happen on: no glow plugs on a CNG car)
 - recommended service, default severity and escalation words (e.g. "grinding" -> high)
+- what to search the web for (`research_focus`)
+
+Mileage asks the fuel first because fuel quality (E20 petrol) is half
+the answer, see [AI_USAGE.md](AI_USAGE.md#3-web-research-fuel-news-recalls-known-issues).
 
 `diagnosis/engine.py` scores every cause against everything the customer said and ranks them. If the
 top cause is clearly ahead, that's the diagnosis, no AI involved. If the evidence is weak or ambiguous,
@@ -83,14 +103,21 @@ diagnosis (validated with a schema). Two safety rules apply to the AI answer:
 
 If Gemini fails, times out or returns junk, the rule based diagnosis is used.
 
+Web research (recalls, known issues, fuel news) is attached to the diagnosis in `Diagnosis.research` with
+its sources. For everything except mileage it's started in a background thread as soon as the problem and
+the car model are known, so it's usually cached by the time the questions are done.
+
 ## Keeping AI usage low (and visible)
 
-- Rules first everywhere. Gemini is called in three places only (media, open questions, unsure diagnosis).
+- Rules first everywhere. Gemini is called for media, messages the rules can't read, Hindi / Hinglish replies,
+  web research, open questions and unsure diagnoses. [AI_USAGE.md](AI_USAGE.md) lists when exactly.
 - Default model `gemini-3.5-flash-lite` (answers in 1-2s on the free tier). If it's out of quota,
   overloaded or times out, `gemini-2.5-flash` is tried next. The bigger flash models were 5-25s per answer
   in testing, too slow for a chat.
 - Answers to open questions are cached for 24h (key = question + car + current diagnosis), media
-  analysis is cached per file hash.
+  analysis per file hash, translations forever per exact text, web research for 24h per problem + car.
+- Web search has only 20 free requests a day on `gemini-2.5-flash`: it's only used where current facts
+  matter, and paused for 10 minutes after a quota error.
 - Rate limits per IP protect the free quota.
 - `apilogs.RequestLogMiddleware` records every API call with the Gemini calls made during it (via a
   context variable the Gemini wrapper appends to). The frontend's API logs panel shows these, the
@@ -108,10 +135,12 @@ Customer (client_id unique, name, phone, email, city)
                   ^
                   | car (nullable)
 Conversation (uuid)  1---*  Message  *---1  Diagnosis (nullable)   Message *---1 Booking (nullable)
-     |  client_id, stage, issue_category, vehicle fields, state (json)
+     |  client_id, stage, issue_category, language, vehicle fields + reg no, state (json)
+     |  (Message also keeps `sources` json: the web pages behind a researched reply)
      |
      |---*  Attachment (uuid, file, kind, sha256, analysis json)  --- linked to Message once sent
-     |---*  Diagnosis (title, summary, probable_causes json, severity, safe_to_drive, cost range, source)
+     |---*  Diagnosis (title, summary, probable_causes json, severity, safe_to_drive, cost range, source,
+     |                 research json, localized json)
      '---*  Booking (uuid, reference, service, mechanic, customer, vehicle, date, slot, mode, status)
 
 Service (code, name, price range, duration)     Mechanic (name, speciality, experience)
