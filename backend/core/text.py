@@ -16,6 +16,13 @@ NEGATIONS = {
 # words that start a new clause - a negation before these doesn't carry over
 CLAUSE_BREAKS = {"|", "and", "but", "or", "so", "because", "when", "while", "though", "also"}
 
+# "not giving the mileage" is a complaint about the mileage, not "no mileage".
+# If one of these sits between the negation and the keyword, the keyword isn't negated.
+COMPLAINT_VERBS = {
+    "giving", "give", "gives", "getting", "get", "working", "work", "works", "starting", "cooling", "charging",
+    "holding", "picking", "running", "doing", "coming", "taking", "going", "showing", "reaching",
+}
+
 
 def normalize(text):
     """
@@ -49,7 +56,7 @@ def _compile(pattern):
 def _is_negated(text, start):
     preceding = text[:start].split()[-3:]
     for word in reversed(preceding):
-        if word in CLAUSE_BREAKS:
+        if word in CLAUSE_BREAKS or word in COMPLAINT_VERBS:
             return False
         if word in NEGATIONS:
             return True
@@ -58,7 +65,11 @@ def _is_negated(text, start):
 
 def mentions(text, pattern):
     """True if `text` (already normalized) mentions `pattern` without it being negated."""
-    return any(not _is_negated(text, match.start()) for match in _compile(pattern).finditer(text))
+    for match in _compile(pattern).finditer(text):
+        # "ac is not cooling" - the keyword is the complaint verb itself
+        if match.group().split()[0] in COMPLAINT_VERBS or not _is_negated(text, match.start()):
+            return True
+    return False
 
 
 def mentions_any(text, patterns):
