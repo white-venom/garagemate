@@ -1,4 +1,4 @@
-import type { Severity, Stage } from "./types";
+import type { Profile, Severity, Stage } from "./types";
 
 const rupees = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
@@ -9,6 +9,18 @@ export function formatRupees(amount: number | null | undefined) {
 export function formatPriceRange(min: number | null, max: number | null) {
   if (min == null || max == null) return "Quote after inspection";
   return `${formatRupees(min)} - ${formatRupees(max)}`;
+}
+
+// "UP37U2004" -> "UP 37 U 2004", the way it's written on the plate
+export function formatPlate(value: string) {
+  const compact = value.replace(/[\s-]/g, "").toUpperCase();
+  const match = compact.match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{4})$/);
+  return match ? match.slice(1).filter(Boolean).join(" ") : compact;
+}
+
+// enough for the bot to greet them by name and skip the "which car?" question
+export function isProfileComplete(profile: Profile | null) {
+  return Boolean(profile?.name.trim() && profile.cars.length);
 }
 
 export function formatFileSize(bytes: number) {

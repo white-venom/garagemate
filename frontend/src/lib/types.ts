@@ -86,6 +86,8 @@ export interface Vehicle {
   year: number | null;
   odometer_km: number | null;
   fuel_type: string;
+  // older api versions don't send it
+  registration_number?: string;
 }
 
 export interface Conversation {

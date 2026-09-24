@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api, errorMessage } from "@/lib/api";
+import { isProfileComplete } from "@/lib/format";
 import type { Attachment, Booking, Conversation, Diagnosis, Message, Profile } from "@/lib/types";
 
 import ApiLogsPanel from "./ApiLogsPanel";
@@ -45,6 +46,7 @@ export default function ChatApp() {
   const [bookingDiagnosis, setBookingDiagnosis] = useState<Diagnosis | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileWelcome, setProfileWelcome] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const localCounter = useRef(0);
 
@@ -73,9 +75,15 @@ export default function ChatApp() {
     }
   }, []);
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (welcome = false) => {
     try {
-      setProfile(await api.getProfile());
+      const loaded = await api.getProfile();
+      setProfile(loaded);
+      // until we know their name and car, open the garage when the chat opens
+      if (welcome && !isProfileComplete(loaded)) {
+        setProfileWelcome(true);
+        setProfileOpen(true);
+      }
     } catch {
       // the chat works without a profile, no need to shout about it
     }
@@ -108,7 +116,7 @@ export default function ChatApp() {
     } catch {
       lastId = null;
     }
-    const tasks: Promise<void>[] = [loadHistory(), loadProfile()];
+    const tasks: Promise<void>[] = [loadHistory(), loadProfile(true)];
     if (lastId) tasks.push(loadConversation(lastId));
     void Promise.all(tasks);
   }, [loadHistory, loadProfile, loadConversation]);
@@ -130,7 +138,10 @@ export default function ChatApp() {
 
   const closeBooking = useCallback(() => setBookingOpen(false), []);
   const closeLogs = useCallback(() => setLogsOpen(false), []);
-  const closeProfile = useCallback(() => setProfileOpen(false), []);
+  const closeProfile = useCallback(() => {
+    setProfileOpen(false);
+    setProfileWelcome(false);
+  }, []);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const openBooking = (diagnosis: Diagnosis | null) => {
@@ -291,7 +302,7 @@ export default function ChatApp() {
         onBooked={handleBooked}
       />
 
-      <ProfileModal open={profileOpen} onClose={closeProfile} profile={profile} onChange={setProfile} />
+      <ProfileModal open={profileOpen} onClose={closeProfile} profile={profile} onChange={setProfile} welcome={profileWelcome} />
 
       <ApiLogsPanel open={logsOpen} onClose={closeLogs} />
 

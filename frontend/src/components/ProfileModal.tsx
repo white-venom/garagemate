@@ -4,6 +4,7 @@ import { Car as CarIcon, Loader2, Plus, Star, Trash2, UserRound, X } from "lucid
 import { useEffect, useState } from "react";
 
 import { ApiError, api, errorMessage } from "@/lib/api";
+import { formatPlate } from "@/lib/format";
 import type { Car, Profile } from "@/lib/types";
 
 import { NumberPlate } from "./ChatHeader";
@@ -13,6 +14,8 @@ interface ProfileModalProps {
   onClose: () => void;
   profile: Profile | null;
   onChange: (profile: Profile) => void;
+  // opened by itself on the first visit: one save button for everything and a way to skip
+  welcome?: boolean;
 }
 
 const FUELS = [
@@ -55,7 +58,7 @@ function CarRow({ car, onChanged, onError }: { car: Car; onChanged: () => Promis
   const details = [
     car.fuel_type && car.fuel_type[0].toUpperCase() + car.fuel_type.slice(1),
     car.odometer_km ? `${car.odometer_km.toLocaleString("en-IN")} km` : "",
-    car.registration_number,
+    car.registration_number && formatPlate(car.registration_number),
   ].filter(Boolean);
 
   return (
@@ -101,7 +104,7 @@ function CarRow({ car, onChanged, onError }: { car: Car; onChanged: () => Promis
   );
 }
 
-function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "open">) {
+function ProfileForm({ onClose, profile, onChange, welcome = false }: Omit<ProfileModalProps, "open">) {
   const [about, setAbout] = useState({
     name: profile?.name ?? "",
     phone: profile?.phone ?? "",
@@ -110,7 +113,7 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
   });
   const [car, setCar] = useState(EMPTY_CAR);
   const [addingCar, setAddingCar] = useState(!profile?.cars.length);
-  const [saving, setSaving] = useState<"about" | "car" | null>(null);
+  const [saving, setSaving] = useState<"about" | "car" | "all" | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const cars = profile?.cars ?? [];
 
@@ -132,6 +135,16 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
     }
   };
 
+  const addTypedCar = () =>
+    api.addCar({
+      make: car.make,
+      model: car.model,
+      year: car.year ? Number(car.year) : null,
+      fuel_type: car.fuel_type,
+      odometer_km: car.odometer_km ? Number(car.odometer_km.replace(/[^\d]/g, "")) : null,
+      registration_number: car.registration_number,
+    });
+
   const saveCar = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!car.make.trim() || !car.model.trim()) {
@@ -141,14 +154,7 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
     setSaving("car");
     setMessage(null);
     try {
-      await api.addCar({
-        make: car.make,
-        model: car.model,
-        year: car.year ? Number(car.year) : null,
-        fuel_type: car.fuel_type,
-        odometer_km: car.odometer_km ? Number(car.odometer_km.replace(/[^\d]/g, "")) : null,
-        registration_number: car.registration_number,
-      });
+      await addTypedCar();
       await refresh();
       setCar(EMPTY_CAR);
       setAddingCar(false);
@@ -159,14 +165,41 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
     }
   };
 
+  const saveAndStart = async () => {
+    const carTyped = addingCar && Boolean(car.make.trim() || car.model.trim());
+    if (!about.name.trim()) {
+      setMessage({ tone: "error", text: "Tell me your name so I know what to call you." });
+      return;
+    }
+    if ((!cars.length || carTyped) && !(car.make.trim() && car.model.trim())) {
+      setMessage({ tone: "error", text: "Add your car's make and model, e.g. Maruti Swift." });
+      return;
+    }
+    setSaving("all");
+    setMessage(null);
+    try {
+      onChange(await api.updateProfile(about));
+      if (carTyped) {
+        await addTypedCar();
+        await refresh();
+      }
+      onClose();
+    } catch (error) {
+      setMessage({ tone: "error", text: firstError(error) });
+      setSaving(null);
+    }
+  };
+
   const primary = cars.find((item) => item.is_primary);
 
   return (
-    <div className="flex max-h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <header className="relative overflow-hidden bg-ink-900 px-5 pb-5 pt-5 text-white">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-400">My garage</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-400">
+              {welcome ? "Before we start" : "My garage"}
+            </p>
             <h2 id="profile-title" className="mt-1.5 font-display text-xl font-semibold tracking-tight">
               {profile?.name ? `${profile.name.split(" ")[0]}'s garage` : "Tell me about you and your car"}
             </h2>
@@ -181,12 +214,12 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
         </div>
         {primary && (
           <div className="mt-4">
-            <NumberPlate label={primary.registration_number || primary.label} />
+            <NumberPlate label={primary.registration_number ? formatPlate(primary.registration_number) : primary.label} />
           </div>
         )}
       </header>
 
-      <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5">
         {message && (
           <p className={`rounded-lg px-3 py-2 text-sm ${message.tone === "ok" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>
             {message.text}
@@ -203,13 +236,15 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
             <input className={inputClass} placeholder="Email (optional)" type="email" value={about.email} onChange={(event) => setAbout({ ...about, email: event.target.value })} autoComplete="email" />
             <input className={inputClass} placeholder="City (optional)" value={about.city} onChange={(event) => setAbout({ ...about, city: event.target.value })} autoComplete="address-level2" />
           </div>
-          <button
-            type="submit"
-            disabled={saving === "about"}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-ink-700 disabled:opacity-50"
-          >
-            {saving === "about" && <Loader2 className="size-4 animate-spin" />} Save details
-          </button>
+          {!welcome && (
+            <button
+              type="submit"
+              disabled={saving === "about"}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-ink-700 disabled:opacity-50"
+            >
+              {saving === "about" && <Loader2 className="size-4 animate-spin" />} Save details
+            </button>
+          )}
         </form>
 
         <section>
@@ -254,7 +289,7 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
                   onChange={(event) => setCar({ ...car, registration_number: event.target.value.toUpperCase() })}
                 />
               </div>
-              <div className="mt-3 flex gap-2">
+              <div className={`mt-3 flex gap-2 ${welcome && !cars.length ? "hidden" : ""}`}>
                 <button
                   type="submit"
                   disabled={saving === "car"}
@@ -272,6 +307,22 @@ function ProfileForm({ onClose, profile, onChange }: Omit<ProfileModalProps, "op
           )}
         </section>
       </div>
+
+      {welcome && (
+        <div className="flex items-center justify-between gap-3 border-t border-stone-200 bg-stone-50/70 px-5 py-4">
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100">
+            Skip for now
+          </button>
+          <button
+            type="button"
+            onClick={saveAndStart}
+            disabled={saving !== null}
+            className="inline-flex items-center gap-2 rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-ink-950 shadow-[0_8px_20px_-10px] shadow-brand-600 transition hover:bg-brand-400 disabled:opacity-60"
+          >
+            {saving === "all" && <Loader2 className="size-4 animate-spin" />} Save &amp; start chatting
+          </button>
+        </div>
+      )}
     </div>
   );
 }

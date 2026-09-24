@@ -3,6 +3,7 @@
 import { Activity, CalendarPlus, Check, Menu, Stethoscope } from "lucide-react";
 
 import { CategoryIcon } from "@/lib/categories";
+import { formatPlate } from "@/lib/format";
 import type { Conversation, Stage } from "@/lib/types";
 
 interface ChatHeaderProps {
@@ -63,6 +64,7 @@ export default function ChatHeader({ conversation, busy, aiTrouble, onOpenMenu, 
   const vehicle = conversation
     ? [conversation.vehicle.year, conversation.vehicle.make, conversation.vehicle.model].filter(Boolean).join(" ")
     : "";
+  const plate = conversation?.vehicle.registration_number ? formatPlate(conversation.vehicle.registration_number) : "";
   const canDiagnose = conversation?.stage === "gathering" && Boolean(conversation.issue_category);
   const canBook = conversation?.stage === "diagnosed" || conversation?.stage === "booked";
   const stage = conversation?.stage ?? "new";
@@ -89,9 +91,11 @@ export default function ChatHeader({ conversation, busy, aiTrouble, onOpenMenu, 
             {conversation?.title || "New conversation"}
           </h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
-            {vehicle ? (
+            {vehicle || plate ? (
               <>
-                <NumberPlate label={vehicle} />
+                {/* the plate shows the registration once we know it, the car name goes next to it */}
+                <NumberPlate label={plate || vehicle} />
+                {plate && vehicle && <span className="font-medium text-stone-700">{vehicle}</span>}
                 {conversation?.vehicle.odometer_km ? (
                   <span>{conversation.vehicle.odometer_km.toLocaleString("en-IN")} km</span>
                 ) : null}
@@ -121,6 +125,7 @@ export default function ChatHeader({ conversation, busy, aiTrouble, onOpenMenu, 
               type="button"
               onClick={onDiagnose}
               disabled={busy}
+              aria-label="Diagnose now"
               className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50"
               title="Skip the remaining questions and diagnose with what you've told me"
             >
@@ -133,6 +138,7 @@ export default function ChatHeader({ conversation, busy, aiTrouble, onOpenMenu, 
             <button
               type="button"
               onClick={onBook}
+              aria-label="Book mechanic"
               className="inline-flex items-center gap-1.5 rounded-lg bg-ink-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-ink-700"
             >
               <CalendarPlus className="size-4" />
