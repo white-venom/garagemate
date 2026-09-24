@@ -87,7 +87,8 @@ Each one has:
 - 2-7 follow-up questions with quick reply options
 - possible causes, each with a prior and signal words that make it more likely (and the fuels it can
   happen on: no glow plugs on a CNG car)
-- recommended service, default severity and escalation words (e.g. "grinding" -> high)
+- recommended service (a cause can have its own, a puncture needs a tyre repair, not wheel alignment),
+  default severity and escalation words (e.g. "grinding" -> high)
 - what to search the web for (`research_focus`)
 
 Mileage asks the fuel first because fuel quality (E20 petrol) is half

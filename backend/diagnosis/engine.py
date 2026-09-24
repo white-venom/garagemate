@@ -44,6 +44,7 @@ class RankedCause:
     score: float
     signal: int
     severity: str
+    service_code: str = ""
 
 
 def detect_issue(text):
@@ -73,7 +74,7 @@ def rank_causes(issue, evidence, fuel_type=""):
             # no glow plugs on a CNG car, no spark plugs on a diesel
             continue
         signal = keyword_score(normalized, cause.signals)
-        ranked.append(RankedCause(cause.name, cause.prior + signal, signal, cause.severity))
+        ranked.append(RankedCause(cause.name, cause.prior + signal, signal, cause.severity, cause.service_code))
     ranked.sort(key=lambda cause: cause.score, reverse=True)
     return ranked
 
@@ -237,7 +238,9 @@ def build_diagnosis(conversation, gemini=None, research=None):
         if found:
             research = {key: found[key] for key in ("summary", "sources", "queries", "searched_at")}
 
-    service = Service.objects.filter(code=issue.service_code, is_active=True).first()
+    # the top cause from the rules decides the service, even when Gemini reworded the diagnosis
+    service_code = ranked[0].service_code or issue.service_code
+    service = Service.objects.filter(code=service_code, is_active=True).first()
     return Diagnosis.objects.create(
         conversation=conversation,
         category=issue.key,

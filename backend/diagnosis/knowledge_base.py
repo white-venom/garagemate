@@ -49,6 +49,9 @@ class Cause:
     severity: str = ""  # overrides the issue severity when this is the top cause
     # only possible on these fuels (glow plugs are diesel only), empty = any car
     fuels: tuple = ()
+    # when this is the top cause and needs a different job than the issue's usual service
+    # (a puncture needs a tyre repair, not wheel alignment)
+    service_code: str = ""
 
 
 SPARK_IGNITION = ("petrol", "cng", "lpg", "hybrid")
@@ -674,9 +677,26 @@ ISSUE_TYPES = [
         causes=(
             Cause("Wheels need balancing", {"vibrat*": 2, "60 to 100": 3, "above 100": 3, "high speed": 3, "steering shak*": 2}, prior=1.0),
             Cause("Wheel alignment out", {"pull*": 3, "uneven": 3, "inner edge": 3, "outer edge": 3, "fast wear": 2}, prior=0.8),
-            Cause("Slow puncture or leaking valve", {"losing air": 4, "puncture*": 3, "flat": 2, "tpms": 2, "nail": 3}, prior=0.8),
-            Cause("Wrong tyre pressure", {"cant remember": 3, "about a month": 1, "uneven": 1, "pull*": 1}, prior=0.4, severity=LOW),
-            Cause("Damaged or aged tyre (bulge, cracks)", {"bulg*": 4, "crack*": 3, "over 5 years": 3, "wobbl*": 2}, prior=0.4, severity=HIGH),
+            Cause(
+                "Slow puncture or leaking valve",
+                {"losing air": 4, "puncture*": 3, "flat": 2, "tpms": 2, "nail": 3},
+                prior=0.8,
+                service_code="tyre-service",
+            ),
+            Cause(
+                "Wrong tyre pressure",
+                {"cant remember": 3, "about a month": 1, "uneven": 1, "pull*": 1},
+                prior=0.4,
+                severity=LOW,
+                service_code="tyre-service",
+            ),
+            Cause(
+                "Damaged or aged tyre (bulge, cracks)",
+                {"bulg*": 4, "crack*": 3, "over 5 years": 3, "wobbl*": 2},
+                prior=0.4,
+                severity=HIGH,
+                service_code="tyre-service",
+            ),
             Cause("Bent rim", {"pothole*": 2, "below 60": 2, "rim": 3, "wobbl*": 2}, prior=0.3),
         ),
         service_code="wheel-alignment",

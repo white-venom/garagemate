@@ -19,6 +19,20 @@ class KnowledgeBaseTests(TestCase):
         codes = set(Service.objects.values_list("code", flat=True))
         for issue in ISSUE_TYPES:
             self.assertIn(issue.service_code, codes, issue.key)
+            for cause in issue.causes:
+                if cause.service_code:
+                    self.assertIn(cause.service_code, codes, cause.name)
+
+    @override_settings(GEMINI_API_KEY="")
+    def test_puncture_gets_a_tyre_repair_not_wheel_alignment(self):
+        conversation = Conversation.objects.create(
+            client_id=CLIENT_ID, issue_category="tyres", state={"description": "tyre keeps losing air, found a nail"}
+        )
+        diagnosis = build_diagnosis(conversation)
+        self.assertEqual(diagnosis.recommended_service.code, "tyre-service")
+
+        conversation.state = {"description": "steering wheel shakes at high speed", "answers": {"speed": "60 to 100 km/h"}}
+        self.assertEqual(build_diagnosis(conversation).recommended_service.code, "wheel-alignment")
 
     def test_detect_issue(self):
         cases = {
@@ -122,6 +136,7 @@ class BuildDiagnosisTests(TestCase):
         self.assertEqual(diagnosis.research, {})
         self.assertEqual(fake.calls, 0)
 
+    @override_settings(GEMINI_API_KEY="")
     def test_causes_that_dont_fit_the_fuel_are_left_out(self):
         conversation = self.make_conversation("starting", "won't start in the morning, cranks normally, cold")
         conversation.fuel_type = "cng"
