@@ -17,7 +17,8 @@ import type {
   Slot,
 } from "./types";
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+// trim() also drops a stray BOM, easy to end up with when an env var is set from powershell
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").trim().replace(/\/$/, "");
 
 export type FieldErrors = Record<string, string[] | string>;
 
