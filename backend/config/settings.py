@@ -199,6 +199,10 @@ GEMINI_RESEARCH_MODELS = env_list("GEMINI_RESEARCH_MODELS", "gemini-2.5-flash")
 RESEARCH_TIMEOUT_SECONDS = int(os.getenv("RESEARCH_TIMEOUT_SECONDS", "15"))
 # model specific searches start in a thread while the customer answers the questions (off in tests)
 RESEARCH_IN_BACKGROUND = env_bool("RESEARCH_IN_BACKGROUND", default=not RUNNING_TESTS)
+
+if RUNNING_TESTS:
+    # tests use fake Gemini clients, the real key from .env must never be used by accident
+    GEMINI_API_KEY = ""
 RESEARCH_ENABLED = env_bool("RESEARCH_ENABLED", default=True)
 # how long researched news / recalls are reused for the same car + problem
 RESEARCH_CACHE_HOURS = int(os.getenv("RESEARCH_CACHE_HOURS", "24"))
