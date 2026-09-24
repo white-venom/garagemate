@@ -60,7 +60,15 @@ function Stepper({ stage }: { stage: Stage }) {
   );
 }
 
-export default function ChatHeader({ conversation, busy, aiTrouble, onOpenMenu, onDiagnose, onBook, onOpenLogs }: ChatHeaderProps) {
+export default function ChatHeader({
+  conversation,
+  busy,
+  aiTrouble,
+  onOpenMenu,
+  onDiagnose,
+  onBook,
+  onOpenLogs,
+}: ChatHeaderProps) {
   const vehicle = conversation
     ? [conversation.vehicle.year, conversation.vehicle.make, conversation.vehicle.model].filter(Boolean).join(" ")
     : "";

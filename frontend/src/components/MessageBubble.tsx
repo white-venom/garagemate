@@ -11,6 +11,7 @@ import AttachmentView from "./AttachmentView";
 import type { ChatItem } from "./ChatApp";
 import DiagnosisCard from "./DiagnosisCard";
 import Logo from "./Logo";
+import SourceList from "./SourceList";
 
 interface MessageBubbleProps {
   message: ChatItem;
@@ -93,8 +94,10 @@ export default function MessageBubble({
   if (message.role === "user") return <UserMessage message={message} onRetry={onRetry} />;
 
   const isDiagnosis = message.kind === "diagnosis" && message.diagnosis;
-  // anything the bot said before the diagnosis block (safety warnings, intro line)
-  const textBeforeDiagnosis = isDiagnosis ? message.content.split("**Diagnosis:")[0].trim() : "";
+  // anything the bot said before the diagnosis block (safety warnings, intro line). The block starts with a
+  // bold heading line, found that way instead of by the word "Diagnosis" so it works in Hindi too.
+  const headingAt = isDiagnosis ? message.content.search(/^\*\*/m) : -1;
+  const textBeforeDiagnosis = headingAt > 0 ? message.content.slice(0, headingAt).trim() : "";
 
   const bubbleStyle =
     message.kind === "rejection"
@@ -159,6 +162,12 @@ export default function MessageBubble({
                   View <ArrowRight className="size-3.5" />
                 </span>
               </Link>
+            )}
+
+            {message.sources && message.sources.length > 0 && (
+              <div className="mt-3 border-t border-stone-100 pt-2.5">
+                <SourceList sources={message.sources} />
+              </div>
             )}
 
             {message.kind === "booking_prompt" && (

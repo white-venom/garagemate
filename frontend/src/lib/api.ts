@@ -10,6 +10,7 @@ import type {
   ChatResponse,
   Conversation,
   ConversationDetail,
+  Language,
   DiagnosisResponse,
   LogsResponse,
   Profile,
@@ -112,7 +113,7 @@ function uploadFile(file: File, conversationId: string | null, onProgress?: (per
 }
 
 export const api = {
-  sendMessage: (body: { conversation_id?: string | null; message: string; attachment_ids?: string[] }) =>
+  sendMessage: (body: { conversation_id?: string | null; message: string; attachment_ids?: string[]; language?: Language }) =>
     request<ChatResponse>("/api/chat/", { method: "POST", json: body }),
 
   uploadFile,
@@ -125,6 +126,9 @@ export const api = {
   getConversation: (id: string) => request<ConversationDetail>(`/api/conversations/${id}/`),
 
   deleteConversation: (id: string) => request<void>(`/api/conversations/${id}/`, { method: "DELETE" }),
+
+  setLanguage: (id: string, language: Language) =>
+    request<Conversation>(`/api/conversations/${id}/`, { method: "PATCH", json: { language } }),
 
   listServices: () => request<{ results: Service[] }>("/api/services/"),
 

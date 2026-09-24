@@ -6,7 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { api, errorMessage } from "@/lib/api";
 import { formatFileSize } from "@/lib/format";
-import type { Attachment } from "@/lib/types";
+import type { Attachment, Language } from "@/lib/types";
+
+import LanguagePicker from "./LanguagePicker";
 
 // same limits as the backend (chat/uploads.py)
 const MB = 1024 * 1024;
@@ -31,6 +33,8 @@ interface ComposerProps {
   disabled: boolean;
   onSend: (text: string, attachments: Attachment[]) => void;
   onError: (message: string) => void;
+  language: Language;
+  onLanguageChange: (language: Language) => void;
 }
 
 function kindOf(file: File): Kind | null {
@@ -44,7 +48,7 @@ function formatSeconds(total: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export default function Composer({ conversationId, disabled, onSend, onError }: ComposerProps) {
+export default function Composer({ conversationId, disabled, onSend, onError, language, onLanguageChange }: ComposerProps) {
   const [text, setText] = useState("");
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -279,9 +283,12 @@ export default function Composer({ conversationId, disabled, onSend, onError }: 
           </button>
         </div>
 
-        <p className="mt-1.5 hidden text-center text-[11px] text-stone-400 sm:block">
-          Enter to send, Shift + Enter for a new line. Photos up to 8 MB, audio 10 MB, video 15 MB.
-        </p>
+        <div className="mt-1.5 flex items-center justify-center gap-3 text-[11px] text-stone-400">
+          <LanguagePicker value={language} onChange={onLanguageChange} />
+          <span className="hidden truncate sm:inline">
+            Enter to send, Shift + Enter for a new line. Photos up to 8 MB, audio 10 MB, video 15 MB.
+          </span>
+        </div>
       </div>
     </div>
   );

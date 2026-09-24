@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { isProfileComplete } from "@/lib/format";
-import type { Attachment, Booking, Conversation, Diagnosis, Message, Profile } from "@/lib/types";
+import type { Attachment, Booking, Conversation, Diagnosis, Language, Message, Profile } from "@/lib/types";
 
 import ApiLogsPanel from "./ApiLogsPanel";
 import BookingModal from "./BookingModal";
@@ -23,6 +23,25 @@ export type ChatItem = Message & {
 };
 
 const LAST_CONVERSATION_KEY = "garagemate.lastConversation";
+const LANGUAGE_KEY = "garagemate.language";
+const LANGUAGES: Language[] = ["en", "hi", "hinglish"];
+
+function storedLanguage(): Language {
+  try {
+    const value = localStorage.getItem(LANGUAGE_KEY) as Language | null;
+    return value && LANGUAGES.includes(value) ? value : "en";
+  } catch {
+    return "en";
+  }
+}
+
+function rememberLanguage(language: Language) {
+  try {
+    localStorage.setItem(LANGUAGE_KEY, language);
+  } catch {
+    // not saved, the picker still works for this visit
+  }
+}
 
 function rememberConversation(id: string | null) {
   try {
@@ -47,6 +66,8 @@ export default function ChatApp() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileWelcome, setProfileWelcome] = useState(false);
+  // language for new chats, an open chat has its own (conversation.language)
+  const [preferredLanguage, setPreferredLanguage] = useState<Language>("en");
   const [toast, setToast] = useState<string | null>(null);
   const localCounter = useRef(0);
 
@@ -116,7 +137,7 @@ export default function ChatApp() {
     } catch {
       lastId = null;
     }
-    const tasks: Promise<void>[] = [loadHistory(), loadProfile(true)];
+    const tasks: Promise<void>[] = [loadHistory(), loadProfile(true), Promise.resolve().then(() => setPreferredLanguage(storedLanguage()))];
     if (lastId) tasks.push(loadConversation(lastId));
     void Promise.all(tasks);
   }, [loadHistory, loadProfile, loadConversation]);
@@ -186,6 +207,8 @@ export default function ChatApp() {
         conversation_id: conversation?.id ?? null,
         message: text,
         attachment_ids: attachments.map((attachment) => attachment.id),
+        // a new chat starts in the language picked in the header
+        ...(conversation ? {} : { language: preferredLanguage }),
       });
       setMessages((previous) => [
         ...previous.filter((item) => item.localId !== localId),
@@ -195,6 +218,12 @@ export default function ChatApp() {
       setConversation(response.conversation);
       upsertConversation(response.conversation);
       rememberConversation(response.conversation.id);
+      // they asked in the chat ("talk in hindi") or wrote in Hindi: keep that for the next chat too
+      const replyLanguage = response.conversation.language;
+      if (replyLanguage && replyLanguage !== preferredLanguage) {
+        setPreferredLanguage(replyLanguage);
+        rememberLanguage(replyLanguage);
+      }
 
       if (response.reply.action === "open_booking") {
         openBooking(response.reply.diagnosis ?? latestDiagnosis);
@@ -207,6 +236,19 @@ export default function ChatApp() {
       );
     } finally {
       setSending(false);
+    }
+  };
+
+  const changeLanguage = async (language: Language) => {
+    setPreferredLanguage(language);
+    rememberLanguage(language);
+    if (!conversation) return;
+    setConversation({ ...conversation, language });
+    try {
+      const updated = await api.setLanguage(conversation.id, language);
+      setConversation((current) => (current && current.id === updated.id ? { ...current, language: updated.language } : current));
+    } catch (error) {
+      setToast(errorMessage(error));
     }
   };
 
@@ -290,7 +332,14 @@ export default function ChatApp() {
           onOpenProfile={openProfile}
         />
 
-        <Composer conversationId={conversation?.id ?? null} disabled={sending || loadingConversation} onSend={send} onError={setToast} />
+        <Composer
+          conversationId={conversation?.id ?? null}
+          disabled={sending || loadingConversation}
+          onSend={send}
+          onError={setToast}
+          language={conversation?.language ?? preferredLanguage}
+          onLanguageChange={changeLanguage}
+        />
       </main>
 
       <BookingModal

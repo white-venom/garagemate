@@ -2,6 +2,31 @@ export type Severity = "low" | "medium" | "high" | "critical";
 
 export type Stage = "new" | "gathering" | "diagnosed" | "booked";
 
+export type Language = "en" | "hi" | "hinglish";
+
+export interface Source {
+  title: string;
+  url: string;
+}
+
+// web research behind a diagnosis: fuel news, recalls, known issues for the model
+export interface Research {
+  summary?: string;
+  sources?: Source[];
+  queries?: string[];
+  searched_at?: string;
+}
+
+// the card text translated when the chat isn't in English
+export interface LocalizedDiagnosis {
+  language?: Language;
+  title?: string;
+  summary?: string;
+  advice?: string;
+  causes?: string[];
+  research_summary?: string;
+}
+
 export type MessageKind =
   | "text"
   | "question"
@@ -41,6 +66,8 @@ export interface Diagnosis {
   estimated_cost_min: number | null;
   estimated_cost_max: number | null;
   source: "rules" | "ai";
+  research?: Research;
+  localized?: LocalizedDiagnosis;
   created_at: string;
 }
 
@@ -77,6 +104,7 @@ export interface Message {
   booking: BookingSummary | null;
   used_ai: boolean;
   ai_error: string;
+  sources?: Source[];
   created_at: string;
 }
 
@@ -95,6 +123,7 @@ export interface Conversation {
   title: string;
   stage: Stage;
   issue_category: string;
+  language?: Language;
   vehicle: Vehicle;
   car_id: number | null;
   latest_diagnosis: { id: number; title: string; severity: Severity } | null;
