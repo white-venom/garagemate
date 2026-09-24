@@ -67,7 +67,12 @@ certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos "${CERT_CONTACT[@]}" 
 # once a day: clean up uploads that were never sent, and API logs older than a week
 CRON_LINE="30 3 * * * cd $BACKEND_DIR && .venv/bin/python manage.py cleanup_uploads >> /tmp/cleanup_uploads.log 2>&1"
 LOGS_LINE="45 3 * * * cd $BACKEND_DIR && .venv/bin/python manage.py prune_logs >> /tmp/prune_logs.log 2>&1"
-( crontab -u "$APP_USER" -l 2>/dev/null | grep -v -e cleanup_uploads -e prune_logs; echo "$CRON_LINE"; echo "$LOGS_LINE" ) | crontab -u "$APP_USER" -
+# a fresh user has no crontab yet, "crontab -l" fails then - that's fine
+EXISTING_CRON=$(crontab -u "$APP_USER" -l 2>/dev/null | grep -v -e cleanup_uploads -e prune_logs || true)
+printf '%s
+%s
+%s
+' "$EXISTING_CRON" "$CRON_LINE" "$LOGS_LINE" | sed '/^$/d' | crontab -u "$APP_USER" -
 
 echo
 echo "Done. Check https://$DOMAIN/api/health/"
